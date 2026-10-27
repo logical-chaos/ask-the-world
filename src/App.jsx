@@ -287,6 +287,22 @@ function App() {
   const [discussionTitle, setDiscussionTitle] = useState("");
   const [discussionBody, setDiscussionBody] = useState("");
   const [showDiscussionForm, setShowDiscussionForm] = useState(false);
+  
+  const [profile, setProfile] = useState(() => {
+    const savedProfile = localStorage.getItem("askWorldProfile");
+
+    return savedProfile
+      ? JSON.parse(savedProfile)
+      : {
+          name: "Your Name",
+          bio: "Curious mind exploring ideas, people, and possibilities.",
+          interests: ["Technology", "Books", "Creative writing"],
+          avatar: "🌷",
+        };
+  });
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState(profile);
 
   const filteredQuestions = questions.filter((q) => {
     const query = search.toLowerCase();
@@ -375,6 +391,32 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  
+  function saveProfile(e) {
+    e.preventDefault();
+
+    const updatedProfile = {
+      ...profileDraft,
+      interests: profileDraft.interests
+        .split(",")
+        .map((interest) => interest.trim())
+        .filter(Boolean),
+    };
+
+    setProfile(updatedProfile);
+    localStorage.setItem("askWorldProfile", JSON.stringify(updatedProfile));
+    setIsEditingProfile(false);
+  }
+
+  function startEditingProfile() {
+    setProfileDraft({
+      ...profile,
+      interests: profile.interests.join(", "),
+    });
+    setIsEditingProfile(true);
+  }
+
+
   function openCircle(circleId) {
     setSelectedCircleId(circleId);
     setCircleTab("chat");
@@ -457,6 +499,7 @@ function App() {
           ask the world<span className="brand-dot">.</span>
         </button>
 
+        
         <nav>
           <button
             className={activePage === "explore" ? "nav-active" : ""}
@@ -464,18 +507,40 @@ function App() {
           >
             Explore
           </button>
+
           <button
             className={activePage === "circles" ? "nav-active" : ""}
             onClick={() => openPage("circles")}
           >
             Circles
           </button>
-          <a href="#topics" onClick={() => openPage("explore")}>
+
+          <a
+            href="#topics"
+            onClick={(e) => {
+              e.preventDefault();
+              openPage("explore");
+            }}
+          >
             Topics
           </a>
-          <a href="#about" onClick={() => openPage("explore")}>
+
+          <a
+            href="#about"
+            onClick={(e) => {
+              e.preventDefault();
+              openPage("explore");
+            }}
+          >
             About
           </a>
+
+          <button
+            className={activePage === "profile" ? "nav-active" : ""}
+            onClick={() => openPage("profile")}
+          >
+            Profile
+          </button>
         </nav>
 
         <button
@@ -744,7 +809,7 @@ function App() {
             </button>
           </section>
         </main>
-      ) : (
+      ) : activePage === "circles" ? (
         <main className="circles-page">
           {!selectedCircle ? (
             <>
@@ -1035,7 +1100,189 @@ function App() {
             </>
           )}
         </main>
+      
+    
+      ) : (
+        <main className="profile-page">
+          <section className="profile-hero">
+            <div className="section-label">YOUR SPACE</div>
+            <h1>Your profile<span>.</span></h1>
+            <p>A little introduction to the person behind the questions.</p>
+          </section>
+
+          <section className="profile-card">
+            <div className="profile-top">
+              <div className="profile-avatar">
+                {profile.avatar}
+              </div>
+
+              <div className="profile-heading">
+                <h2>{profile.name || "Your Name"}</h2>
+                <p>Ask the World community member</p>
+              </div>
+
+              {!isEditingProfile && (
+                <button
+                  className="ask-button"
+                  onClick={startEditingProfile}
+                >
+                  Edit profile ✎
+                </button>
+              )}
+            </div>
+
+            {isEditingProfile ? (
+              <form className="profile-form" onSubmit={saveProfile}>
+                <label htmlFor="profile-name">Your name</label>
+                <input
+                  id="profile-name"
+                  value={profileDraft.name}
+                  onChange={(e) =>
+                    setProfileDraft({
+                      ...profileDraft,
+                      name: e.target.value,
+                    })
+                  }
+                  required
+                />
+
+                <label htmlFor="profile-avatar">Choose an avatar</label>
+                <input
+                  id="profile-avatar"
+                  value={profileDraft.avatar}
+                  onChange={(e) =>
+                    setProfileDraft({
+                      ...profileDraft,
+                      avatar: e.target.value,
+                    })
+                  }
+                  maxLength={8}
+                  required
+                />
+
+                <label htmlFor="profile-bio">About you</label>
+                <textarea
+                  id="profile-bio"
+                  value={profileDraft.bio}
+                  onChange={(e) =>
+                    setProfileDraft({
+                      ...profileDraft,
+                      bio: e.target.value,
+                    })
+                  }
+                  rows={3}
+                  maxLength={250}
+                  placeholder="Tell the community a little about yourself..."
+                />
+
+                <label htmlFor="profile-interests">
+                  Interests (separate with commas)
+                </label>
+                <input
+                  id="profile-interests"
+                  value={profileDraft.interests}
+                  onChange={(e) =>
+                    setProfileDraft({
+                      ...profileDraft,
+                      interests: e.target.value,
+                    })
+                  }
+                  placeholder="Technology, Books, Music"
+                />
+
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    onClick={() => setIsEditingProfile(false)}
+                  >
+                    Cancel
+                  </button>
+
+                  <button className="ask-button" type="submit">
+                    Save profile ↗
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div className="profile-bio">
+                  <h3>About me</h3>
+                  <p>
+                    {profile.bio || "Add a little introduction about yourself."}
+                  </p>
+                </div>
+
+                <div className="profile-interests">
+                  <h3>Things I love</h3>
+                  <div className="tag-list">
+                    {profile.interests.length > 0 ? (
+                      profile.interests.map((interest) => (
+                        <span className="tag" key={interest}>
+                          {interest}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="muted">No interests added yet.</span>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="profile-stats">
+              <div>
+                <strong>{questions.filter((q) => q.author === "You").length}</strong>
+                <span>Questions</span>
+              </div>
+              <div>
+                <strong>
+                  {Object.values(answersByQuestion)
+                    .flat()
+                    .filter((answer) => answer.author === "You").length}
+                </strong>
+                <span>Answers</span>
+              </div>
+              <div>
+                <strong>{joinedCircles.length}</strong>
+                <span>Circles joined</span>
+              </div>
+            </div>
+
+            <div className="profile-interests">
+              <h3>My Circles</h3>
+              {joinedCircles.length > 0 ? (
+                <div className="joined-circles-list">
+                  {initialCircles
+                    .filter((circle) => joinedCircles.includes(circle.id))
+                    .map((circle) => (
+                      <button
+                        className="profile-circle-link"
+                        key={circle.id}
+                        onClick={() => openCircle(circle.id)}
+                      >
+                        {circle.icon} {circle.name} ↗
+                      </button>
+                    ))}
+                </div>
+              ) : (
+                <p className="muted">
+                  You haven't joined a Circle yet. Explore Circles to find your people!
+                </p>
+              )}
+
+              <button
+                className="cancel-button profile-circles-button"
+                onClick={() => openPage("circles")}
+              >
+                Explore Circles
+              </button>
+            </div>
+          </section>
+        </main>
       )}
+      
+
 
       <footer>
         <button
