@@ -1,7 +1,12 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 import IntroScreen from "./IntroScreen";
+import BluLogo from "./components/BluLogo";
+import OnboardingScreen from "./components/OnboardingScreen";
+import ThemeToggle from "./components/ThemeToggle";
+import AuthModal from "./components/AuthModal";
+import { supabase } from "./lib/supabase";
 
 const initialQuestions = [
   {
@@ -266,18 +271,98 @@ const initialDiscussions = {
 function App() {
   const [questions, setQuestions] = useState(initialQuestions);
   const [showIntro, setShowIntro] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [activeTopic, setActiveTopic] = useState("All");
+
+  const [theme, setTheme] = useState(() => {
+    try {
+      const savedTheme = localStorage.getItem("blu_theme");
+      return savedTheme === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
+
+  const [user, setUser] = useState(/** @type {any} */ (null));
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState("login");
+
+  function openAuthModal(mode = "login") {
+    setAuthModalMode(mode);
+    setShowAuthModal(true);
+  }
+
+  async function handleLogout() {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("Error signing out:", error);
+      }
+    } catch (err) {
+      console.error("Logout exception:", err);
+    }
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function restoreSession() {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("Error restoring session:", error);
+        }
+        if (isMounted) {
+          setUser(session?.user ?? null);
+          setAuthLoading(false);
+        }
+      } catch (err) {
+        console.error("Auth session restore exception:", err);
+        if (isMounted) setAuthLoading(false);
+      }
+    }
+
+    restoreSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (isMounted) {
+        setUser(session?.user ?? null);
+        setAuthLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("blu_theme", theme);
+    } catch {
+      // ignore
+    }
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  }
   const [search, setSearch] = useState("");
   const [newQuestion, setNewQuestion] = useState("");
   const [votes, setVotes] = useState({});
   const [showAskForm, setShowAskForm] = useState(false);
-  const [selectedQuestionId, setSelectedQuestionId] = useState(null);
+  const [selectedQuestionId, setSelectedQuestionId] = useState(/** @type {any} */ (null));
   const [answersByQuestion, setAnswersByQuestion] = useState(initialAnswers);
   const [newAnswerText, setNewAnswerText] = useState("");
   const [helpfulVotes, setHelpfulVotes] = useState({});
   const [activePage, setActivePage] = useState("explore");
-  const [selectedCircleId, setSelectedCircleId] = useState(null);
-  const [joinedCircles, setJoinedCircles] = useState([]);
+  const [selectedCircleId, setSelectedCircleId] = useState(/** @type {any} */ (null));
+  const [joinedCircles, setJoinedCircles] = useState(/** @type {any[]} */ ([]));
   const [circleTab, setCircleTab] = useState("chat");
 
   const [messages, setMessages] = useState(initialMessages);
@@ -287,18 +372,18 @@ function App() {
   const [discussionTitle, setDiscussionTitle] = useState("");
   const [discussionBody, setDiscussionBody] = useState("");
   const [showDiscussionForm, setShowDiscussionForm] = useState(false);
-  
+
   const [profile, setProfile] = useState(() => {
-    const savedProfile = localStorage.getItem("askWorldProfile");
+    const savedProfile = localStorage.getItem("bluProfile") || localStorage.getItem("askWorldProfile");
 
     return savedProfile
       ? JSON.parse(savedProfile)
       : {
-          name: "Your Name",
-          bio: "Curious mind exploring ideas, people, and possibilities.",
-          interests: ["Technology", "Books", "Creative writing"],
-          avatar: "🌷",
-        };
+        name: "Your Name",
+        bio: "Curious mind exploring ideas, people, and possibilities.",
+        interests: ["Technology", "Books", "Creative writing"],
+        avatar: "🌷",
+      };
   });
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -333,9 +418,9 @@ function App() {
       {
         id: Date.now(),
         title: newQuestion.trim(),
-        body: "A new discussion from the Ask the World community.",
+        body: "A new discussion from the blu community.",
         tags: ["Community"],
-        author: "You",
+        author: user ? (user.user_metadata?.full_name || user.email?.split("@")[0] || "You") : (profile.name || "You"),
         votes: 0,
         answers: 0,
       },
@@ -391,7 +476,7 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  
+
   function saveProfile(e) {
     e.preventDefault();
 
@@ -404,6 +489,7 @@ function App() {
     };
 
     setProfile(updatedProfile);
+    localStorage.setItem("bluProfile", JSON.stringify(updatedProfile));
     localStorage.setItem("askWorldProfile", JSON.stringify(updatedProfile));
     setIsEditingProfile(false);
   }
@@ -480,26 +566,47 @@ function App() {
     setShowDiscussionForm(false);
   }
 
-    return (
-    <>
+  function handleIntroComplete() {
+    setShowIntro(false);
+    try {
+      const hasSeen = localStorage.getItem("blu_has_seen_onboarding");
+      if (!hasSeen) {
+        setShowOnboarding(true);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div className="app">
       {showIntro && (
-        <IntroScreen
-          onComplete={() => setShowIntro(false)}
+        <IntroScreen onComplete={handleIntroComplete} />
+      )}
+
+      {showOnboarding && (
+        <OnboardingScreen onComplete={() => setShowOnboarding(false)} />
+      )}
+
+      {showAuthModal && (
+        <AuthModal
+          key={`auth-${authModalMode}`}
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          initialMode={authModalMode}
         />
       )}
 
-
-      <div className="app">
       <header className="navbar">
         <button
           className="brand brand-button"
           onClick={() => openPage("explore")}
+          aria-label="blu home"
         >
-          <span className="brand-icon">✳</span>
-          ask the world<span className="brand-dot">.</span>
+          <BluLogo size={46} showWordmark={true} wordmarkSize={34} gap={12} className="navbar-logo" />
         </button>
 
-        
+
         <nav>
           <button
             className={activePage === "explore" ? "nav-active" : ""}
@@ -543,15 +650,83 @@ function App() {
           </button>
         </nav>
 
-        <button
-          className="ask-button"
-          onClick={() => {
-            openPage("explore");
-            setShowAskForm(true);
-          }}
-        >
-          + Ask a question
-        </button>
+        <div className="navbar-actions">
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+
+          {user ? (
+            <>
+              <button
+                type="button"
+                className="user-nav-chip"
+                onClick={() => openPage("profile")}
+                title="View your profile"
+              >
+                <span className="user-nav-avatar">
+                  {user.user_metadata?.avatar_url || user.user_metadata?.picture ? (
+                    <img
+                      src={user.user_metadata.avatar_url || user.user_metadata.picture}
+                      alt=""
+                      className="user-nav-avatar-img"
+                    />
+                  ) : (
+                    user.user_metadata?.avatar ||
+                    (user.user_metadata?.full_name
+                      ? user.user_metadata.full_name[0].toUpperCase()
+                      : user.user_metadata?.name
+                      ? user.user_metadata.name[0].toUpperCase()
+                      : user.email
+                      ? user.email[0].toUpperCase()
+                      : "✦")
+                  )}
+                </span>
+                <span className="user-nav-name">
+                  {user.user_metadata?.full_name
+                    ? user.user_metadata.full_name.split(" ")[0]
+                    : user.user_metadata?.name
+                    ? user.user_metadata.name.split(" ")[0]
+                    : user.email
+                    ? user.email.split("@")[0]
+                    : "Profile"}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="auth-nav-btn auth-nav-logout"
+                onClick={handleLogout}
+                title="Log out of blu"
+              >
+                Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="auth-nav-btn auth-nav-login"
+                onClick={() => openAuthModal("login")}
+              >
+                Log in
+              </button>
+              <button
+                type="button"
+                className="auth-nav-btn auth-nav-signup"
+                onClick={() => openAuthModal("signup")}
+              >
+                Sign up
+              </button>
+            </>
+          )}
+
+          <button
+            className="ask-button"
+            onClick={() => {
+              openPage("explore");
+              setShowAskForm(true);
+            }}
+          >
+            + Ask a question
+          </button>
+        </div>
       </header>
 
       {activePage === "explore" ? (
@@ -632,9 +807,8 @@ function App() {
               {topics.map((topic) => (
                 <button
                   key={topic}
-                  className={`topic-chip ${
-                    activeTopic === topic ? "selected" : ""
-                  }`}
+                  className={`topic-chip ${activeTopic === topic ? "selected" : ""
+                    }`}
                   onClick={() => setActiveTopic(topic)}
                 >
                   {topic === "All" ? "✳ " : "# "}
@@ -648,9 +822,8 @@ function App() {
                 <article className="question-card" key={q.id}>
                   <div className="vote-column">
                     <button
-                      className={`vote-button ${
-                        votes[q.id] ? "voted" : ""
-                      }`}
+                      className={`vote-button ${votes[q.id] ? "voted" : ""
+                        }`}
                       onClick={() => toggleVote(q.id)}
                       aria-label={`Upvote ${q.title}`}
                       title="Upvote this question"
@@ -682,22 +855,22 @@ function App() {
                           </span>
                         ))}
                       </div>
-                      
-                        <div className="answer-actions">
-                          <span className="answer-count">
-                            ♧ {(answersByQuestion[q.id] || []).length} answers
-                          </span>
 
-                          <button
-                            className="view-answers-button"
-                            onClick={() => {
-                              setSelectedQuestionId(q.id);
-                              setNewAnswerText("");
-                            }}
-                          >
-                            View answers ↗
-                          </button>
-                        </div>
+                      <div className="answer-actions">
+                        <span className="answer-count">
+                          ♧ {(answersByQuestion[q.id] || []).length} answers
+                        </span>
+
+                        <button
+                          className="view-answers-button"
+                          onClick={() => {
+                            setSelectedQuestionId(q.id);
+                            setNewAnswerText("");
+                          }}
+                        >
+                          View answers ↗
+                        </button>
+                      </div>
 
                     </div>
                   </div>
@@ -723,7 +896,7 @@ function App() {
               )}
             </div>
           </section>
-          
+
           {selectedQuestionId !== null && (
             <section className="answers-section">
               {questions
@@ -734,7 +907,7 @@ function App() {
                       className="back-button"
                       onClick={() => setSelectedQuestionId(null)}
                     >
-                      ← Back to questions
+                      â† Back to questions
                     </button>
 
                     <div className="section-label">THE DISCUSSION</div>
@@ -760,9 +933,8 @@ function App() {
                         <p>{answer.body}</p>
 
                         <button
-                          className={`helpful-button ${
-                            helpfulVotes[answer.id] ? "is-helpful" : ""
-                          }`}
+                          className={`helpful-button ${helpfulVotes[answer.id] ? "is-helpful" : ""
+                            }`}
                           onClick={() => toggleHelpful(answer.id)}
                         >
                           {helpfulVotes[answer.id] ? "✓ Helpful" : "♡ Helpful"}
@@ -900,7 +1072,7 @@ function App() {
                   className="back-button"
                   onClick={() => setSelectedCircleId(null)}
                 >
-                  ← All Circles
+                  â† All Circles
                 </button>
 
                 <div
@@ -945,7 +1117,7 @@ function App() {
                     }
                     onClick={() => setCircleTab("discussions")}
                   >
-                    ✍️ Discussions
+                    âœï¸ Discussions
                   </button>
                 </div>
 
@@ -1087,12 +1259,12 @@ function App() {
 
                       {(discussions[selectedCircle.id] || []).length ===
                         0 && (
-                        <div className="empty-state">
-                          <span>✍️</span>
-                          <h3>No posts yet</h3>
-                          <p>Start a conversation for this Circle.</p>
-                        </div>
-                      )}
+                          <div className="empty-state">
+                            <span>âœï¸</span>
+                            <h3>No posts yet</h3>
+                            <p>Start a conversation for this Circle.</p>
+                          </div>
+                        )}
                     </div>
                   </div>
                 )}
@@ -1100,8 +1272,8 @@ function App() {
             </>
           )}
         </main>
-      
-    
+
+
       ) : (
         <main className="profile-page">
           <section className="profile-hero">
@@ -1111,14 +1283,67 @@ function App() {
           </section>
 
           <section className="profile-card">
+            {!user && !authLoading && (
+              <div className="profile-guest-banner">
+                <div className="profile-guest-info">
+                  <strong>Welcome to your space on blu</strong>
+                  <span>Sign in or create an account to personalize your profile and participate in circles.</span>
+                </div>
+                <div className="profile-guest-actions">
+                  <button
+                    type="button"
+                    className="auth-nav-btn auth-nav-login"
+                    onClick={() => openAuthModal("login")}
+                  >
+                    Log in
+                  </button>
+                  <button
+                    type="button"
+                    className="auth-nav-btn auth-nav-signup"
+                    onClick={() => openAuthModal("signup")}
+                  >
+                    Sign up
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="profile-top">
               <div className="profile-avatar">
-                {profile.avatar}
+                {user?.user_metadata?.avatar_url || user?.user_metadata?.picture ? (
+                  <img
+                    src={user.user_metadata.avatar_url || user.user_metadata.picture}
+                    alt=""
+                    className="profile-avatar-img"
+                  />
+                ) : (
+                  user ? (user.user_metadata?.avatar || "✨") : profile.avatar
+                )}
               </div>
 
               <div className="profile-heading">
-                <h2>{profile.name || "Your Name"}</h2>
-                <p>Ask the World community member</p>
+                <h2>{user ? (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || profile.name) : (profile.name || "Your Name")}</h2>
+                <p>{user ? `${user.email} · blu community member` : "blu community member"}</p>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    style={{ fontSize: "12px", color: "var(--purple)", padding: "4px 10px" }}
+                    onClick={() => setShowOnboarding(true)}
+                  >
+                    Welcome guide ↗
+                  </button>
+                  {user && (
+                    <button
+                      type="button"
+                      className="cancel-button profile-logout-btn"
+                      style={{ fontSize: "12px", padding: "4px 10px" }}
+                      onClick={handleLogout}
+                    >
+                      Log out
+                    </button>
+                  )}
+                </div>
               </div>
 
               {!isEditingProfile && (
@@ -1281,21 +1506,21 @@ function App() {
           </section>
         </main>
       )}
-      
+
 
 
       <footer>
         <button
           className="brand brand-button footer-brand"
           onClick={() => openPage("explore")}
+          aria-label="blu home"
         >
-          ✳ ask the world<span className="brand-dot">.</span>
+          <BluLogo size={24} showWordmark={true} wordmarkSize={18} />
         </button>
-        <span>Built on curiosity, powered by people.</span>
-        <span>© 2026 Ask the World</span>
+        <span>Where curiosity, experience, and people meet.</span>
+        <span>© 2026 blu</span>
       </footer>
     </div>
-  </>
   );
 }
 

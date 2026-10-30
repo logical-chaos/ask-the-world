@@ -1,110 +1,65 @@
-
 .intro-screen {
   position: fixed;
   inset: 0;
   z-index: 9999;
   display: grid;
   place-items: center;
-  background: #fbf9f7;
+  background: var(--bg);
   opacity: 1;
-  transition: opacity 600ms ease, visibility 600ms ease;
+  transition: opacity 600ms cubic-bezier(0.4, 0, 0.2, 1), visibility 600ms ease;
 }
 
 .intro-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 24px;
+  padding: 32px 24px;
   text-align: center;
   animation: intro-rise 900ms cubic-bezier(.2, .7, .3, 1) both;
 }
 
 .intro-symbol {
-  width: 90px;
-  height: 90px;
   margin-bottom: 20px;
-  animation: intro-float 2s ease-in-out infinite;
-}
-
-.intro-symbol svg {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.intro-rays {
-  fill: none;
-  stroke: #7952c7;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  transform-origin: 50% 50%;
-  animation: intro-rotate 8s linear infinite;
-}
-
-.intro-symbol svg circle:first-of-type {
-  fill: #fbf9f7;
-  stroke: #7952c7;
-  stroke-width: 2;
-}
-
-.intro-symbol svg .intro-center {
-  fill: #7952c7;
-}
-
-.intro-title {
-  margin: 0;
-  color: #302441;
-  font-size: clamp(34px, 5vw, 54px);
-  font-weight: 600;
-  letter-spacing: -2px;
-  animation: intro-fade 900ms 250ms both;
-}
-
-.intro-title span {
-  color: #7952c7;
-}
-
-.intro-tagline {
-  margin: 16px 0 24px;
-  color: #786a8d;
-  font-size: 15px;
-  line-height: 1.7;
-  animation: intro-fade 900ms 450ms both;
-}
-
-.intro-loader {
+  animation: intro-float 2.8s ease-in-out infinite;
   display: flex;
   align-items: center;
-  gap: 7px;
-  animation: intro-fade 900ms 600ms both;
+  justify-content: center;
 }
 
-.intro-loader span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #bca4e9;
-  animation: intro-pulse 900ms ease-in-out infinite alternate;
+/* Butterfly gentle wing flutter animation */
+.intro-symbol .blu-wing-lavender-left,
+.intro-symbol .blu-wing-blue-left {
+  transform-origin: 20px 18px;
+  animation: wing-flutter-left 2.2s ease-in-out infinite;
 }
 
-.intro-loader span:nth-child(2) {
-  animation-delay: 180ms;
-  background: #7952c7;
+.intro-symbol .blu-wing-lavender-right,
+.intro-symbol .blu-wing-blue-right {
+  transform-origin: 20px 18px;
+  animation: wing-flutter-right 2.2s ease-in-out infinite;
 }
 
-.intro-loader span:nth-child(3) {
-  animation-delay: 360ms;
+@keyframes wing-flutter-left {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  30% {
+    transform: rotate(-6deg) scale(0.97, 1.02);
+  }
+  60% {
+    transform: rotate(4deg) scale(1.02, 0.98);
+  }
 }
 
-.intro-screen.intro-exit {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-@keyframes intro-rotate {
-  to {
-    transform: rotate(360deg);
+@keyframes wing-flutter-right {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  30% {
+    transform: rotate(6deg) scale(0.97, 1.02);
+  }
+  60% {
+    transform: rotate(-4deg) scale(1.02, 0.98);
   }
 }
 
@@ -113,8 +68,60 @@
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-7px);
+    transform: translateY(-8px);
   }
+}
+
+.intro-title {
+  margin: 0;
+  color: var(--purple);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: clamp(42px, 6vw, 64px);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  animation: intro-fade 900ms 200ms both;
+}
+
+.intro-tagline {
+  margin: 16px 0 28px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  line-height: 1.6;
+  max-width: 320px;
+  animation: intro-fade 900ms 400ms both;
+}
+
+.intro-loader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: intro-fade 900ms 550ms both;
+}
+
+.intro-loader span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c4b5fd;
+  animation: intro-pulse 900ms ease-in-out infinite alternate;
+}
+
+.intro-loader span:nth-child(2) {
+  animation-delay: 180ms;
+  background: #93c5fd;
+}
+
+.intro-loader span:nth-child(3) {
+  animation-delay: 360ms;
+  background: var(--purple);
+}
+
+.intro-screen.intro-exit {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 @keyframes intro-rise {
@@ -139,8 +146,8 @@
 
 @keyframes intro-pulse {
   from {
-    opacity: .35;
-    transform: scale(.8);
+    opacity: 0.35;
+    transform: scale(0.8);
   }
   to {
     opacity: 1;
@@ -151,7 +158,10 @@
 @media (prefers-reduced-motion: reduce) {
   .intro-content,
   .intro-symbol,
-  .intro-rays,
+  .intro-symbol .blu-wing-lavender-left,
+  .intro-symbol .blu-wing-blue-left,
+  .intro-symbol .blu-wing-lavender-right,
+  .intro-symbol .blu-wing-blue-right,
   .intro-title,
   .intro-tagline,
   .intro-loader,

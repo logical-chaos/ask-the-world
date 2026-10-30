@@ -1,111 +1,163 @@
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+/* ========================================================
+   blu Design System - CSS Variables & Design Tokens
+   ======================================================== */
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+:root,
+[data-theme="light"] {
+  /* Brand accents */
+  --purple: #7354b8;
+  --purple-hover: #5e419e;
+  --purple-light: #f3ecfc;
+  --purple-border: #e3d7f5;
+  --purple-accent: #9a7bd2;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Backgrounds: Warm Ivory & Soft Lavender */
+  --bg: #faf8f5;
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f5effd;
+  --bg-soft-lavender: #f1e9fa;
+  --nav-bg: rgba(255, 253, 251, 0.95);
+  --footer-bg: #fffdfb;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  /* Typography: Rich Plum & Charcoal */
+  --ink: #2b1b3d;
+  --heading: #2b1b3d;
+  --text-primary: #2b1b3d;
+  --text-secondary: #5f5470;
+  --muted: #827694;
+
+  /* Borders & Dividers */
+  --line: #ece5f3;
+  --line-subtle: #f2ecf8;
+  --card-border: #eae2f2;
+  --card-hover-border: #d4c2ec;
+
+  /* Inputs, Search & Shadows */
+  --search-bg: #ffffff;
+  --search-border: #e6ddf2;
+  --search-shadow: 0 6px 24px rgba(43, 27, 61, 0.05);
+  --input-bg: #ffffff;
+  --input-border: #dfd4ee;
+  --input-focus: #7354b8;
+
+  /* Component tokens */
+  --vote-bg: #f9f6fd;
+  --vote-text: #4a3c63;
+  --vote-btn: #8a75ad;
+  --tag-bg: #f5f0fa;
+  --tag-text: #6d5b87;
+  --banner-bg: #f0e8fb;
+  --banner-border: #e4d7f5;
+  --chat-bg: #faf7fd;
+  --chat-bubble: #ffffff;
+  --avatar-bg: #eee6fa;
+
+  /* Circle spaces colors in Light Mode */
+  --circle-tech-bg: #f3edfc;
+  --circle-study-bg: #ffede3;
+  --circle-art-bg: #fce8f3;
+  --circle-life-bg: #e5f0fc;
+  --circle-career-bg: #e6f7ec;
+  --circle-books-bg: #fef7db;
+
+  /* Theme toggle button */
+  --toggle-bg: #f3ecfb;
+  --toggle-border: #e5d8f6;
+  --toggle-text: #64557b;
+  --toggle-hover-bg: #ece2f7;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+[data-theme="dark"] {
+  /* Brand accents: Luminous Violet */
+  --purple: #9d7fe3;
+  --purple-hover: #b397f3;
+  --purple-light: #261e38;
+  --purple-border: #443462;
+  --purple-accent: #bda3f7;
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+  /* Backgrounds: Deep Charcoal & Rich Plum */
+  --bg: #120f18;
+  --bg-card: #1a1524;
+  --bg-elevated: #201a2d;
+  --bg-subtle: #1f182c;
+  --bg-soft-lavender: #261e35;
+  --nav-bg: rgba(22, 18, 30, 0.95);
+  --footer-bg: #161220;
+
+  /* Typography: Readable Light */
+  --ink: #f5f2fa;
+  --heading: #f9f7fc;
+  --text-primary: #ebe4f5;
+  --text-secondary: #bbb0cc;
+  --muted: #9587a8;
+
+  /* Borders & Dividers */
+  --line: #2b233a;
+  --line-subtle: #241c32;
+  --card-border: #2d243d;
+  --card-hover-border: #4d3b6a;
+
+  /* Inputs, Search & Shadows */
+  --search-bg: #1c1728;
+  --search-border: #352b48;
+  --search-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  --input-bg: #1c1728;
+  --input-border: #382c4e;
+  --input-focus: #9d7fe3;
+
+  /* Component tokens */
+  --vote-bg: #221a30;
+  --vote-text: #dcd3eb;
+  --vote-btn: #a694c7;
+  --tag-bg: #261d36;
+  --tag-text: #d0c1e8;
+  --banner-bg: #201730;
+  --banner-border: #3d2b59;
+  --chat-bg: #161220;
+  --chat-bubble: #211a2f;
+  --avatar-bg: #2b213f;
+
+  /* Circle spaces colors in Dark Mode */
+  --circle-tech-bg: #2a203d;
+  --circle-study-bg: #38221c;
+  --circle-art-bg: #381f2f;
+  --circle-life-bg: #1b283c;
+  --circle-career-bg: #1b3527;
+  --circle-books-bg: #38311a;
+
+  /* Theme toggle button */
+  --toggle-bg: #251d33;
+  --toggle-border: #3d2e54;
+  --toggle-text: #d8cceb;
+  --toggle-hover-bg: #2e2340;
+}
+
+/* ========================================================
+   Global HTML / Body Reset
+   ======================================================== */
+
+html {
+  background-color: var(--bg);
+  color: var(--ink);
+  color-scheme: light dark;
 }
 
 body {
   margin: 0;
+  min-width: 320px;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
+  min-height: 100vh;
+  width: 100%;
+  background-color: var(--bg);
+  color: var(--ink);
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
-}
-
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
 }
