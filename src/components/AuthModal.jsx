@@ -5,7 +5,7 @@ import "./AuthModal.css";
 
 function formatAuthError(error) {
   if (!error) return "An unexpected error occurred. Please try again.";
-  const msg = error.message || "";
+  const msg = typeof error === "string" ? error : (error.message || "");
   if (msg.includes("Invalid login credentials")) {
     return "Incorrect email or password. Please double-check and try again.";
   }
@@ -13,16 +13,30 @@ function formatAuthError(error) {
     return "Please confirm your email address. Check your inbox for the confirmation link.";
   }
   if (msg.includes("User already registered") || msg.includes("already registered")) {
-    return "An account with this email already exists. Try logging in instead.";
+    return "This email may already be registered. Try logging in.";
   }
   if (msg.includes("Password should be at least")) {
     return "Password must be at least 6 characters long.";
+  }
+  if (msg.includes("New password should be different")) {
+    return "New password should be different from your previous password.";
   }
   if (msg.includes("rate limit") || msg.includes("Too many requests")) {
     return "Too many attempts. Please wait a moment and try again.";
   }
   if (msg.includes("provider is not enabled") || msg.includes("Unsupported provider")) {
     return "Google sign-in is not enabled in your Supabase project yet. Please enable the Google provider in your Supabase Authentication settings.";
+  }
+  if (
+    msg.includes("otp_expired") ||
+    msg.includes("Email link is invalid or has expired") ||
+    msg.includes("token has expired") ||
+    msg.includes("invalid token")
+  ) {
+    return "This password reset link has expired or has already been used. Please request a new one.";
+  }
+  if (msg.includes("User not found")) {
+    return "No account found with this email address.";
   }
   return msg;
 }
@@ -32,6 +46,8 @@ function formatAuthError(error) {
  *   isOpen: boolean,
  *   onClose: () => void,
  *   initialMode?: string,
+ *   initialError?: string,
+ *   contextNotice?: string,
  *   onAuthSuccess?: (user?: any) => void
  * }} props
  */
@@ -39,18 +55,33 @@ export default function AuthModal({
   isOpen,
   onClose,
   initialMode = "login",
-  onAuthSuccess = () => {},
+  initialError = "",
+  contextNotice = "",
+  onAuthSuccess = () => { },
 }) {
   const [mode, setMode] = useState(initialMode);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  // Password reset states
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetComplete, setResetComplete] = useState(false);
+
+  // Forgot password states
+  const [forgotSent, setForgotSent] = useState(false);
+
+  // Shared UI states
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState(initialError || "");
   const [successMessage, setSuccessMessage] = useState("");
   const [confirmationPending, setConfirmationPending] = useState(false);
+  const [existingUserDetected, setExistingUserDetected] = useState(false);
 
   useEffect(() => {
     function handleKeyDown(e) {
@@ -63,6 +94,16 @@ export default function AuthModal({
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  function handleSwitchMode(newMode) {
+    setMode(newMode);
+    setErrorMessage("");
+    setSuccessMessage("");
+    setConfirmationPending(false);
+    setExistingUserDetected(false);
+    setForgotSent(false);
+    setResetComplete(false);
+  }
 
   async function handleGoogleSignIn() {
     setErrorMessage("");
@@ -126,15 +167,40 @@ export default function AuthModal({
         });
 
         if (error) {
-          setErrorMessage(formatAuthError(error));
-        } else if (data?.user && !data?.session) {
-          // Email confirmation is required by Supabase project settings
-          setConfirmationPending(true);
-          setSuccessMessage(
-            `Account created! A confirmation link has been sent to ${trimmedEmail}. Please check your inbox to activate your account.`
-          );
+          const isAlreadyRegistered =
+            error.message?.includes("already registered") ||
+            error.message?.includes("already in use") ||
+            error.message?.includes("User already registered");
+
+          if (isAlreadyRegistered) {
+            setExistingUserDetected(true);
+            setConfirmationPending(false);
+          } else {
+            setErrorMessage(formatAuthError(error));
+          }
+        } else if (data?.user) {
+          // Check if Supabase returned an empty identities array (user already exists)
+          const isExistingUser =
+            Array.isArray(data.user.identities) && data.user.identities.length === 0;
+
+          if (isExistingUser) {
+            // Existing user: never falsely claim a new account was created
+            setExistingUserDetected(true);
+            setConfirmationPending(false);
+          } else if (data?.session) {
+            // Auto-signed in
+            if (onAuthSuccess) onAuthSuccess(data.user);
+            onClose();
+          } else {
+            // Genuinely new user with email confirmation required
+            setConfirmationPending(true);
+            setExistingUserDetected(false);
+            setSuccessMessage(
+              `Account created! A confirmation link has been sent to ${trimmedEmail}. Please check your inbox to activate your account.`
+            );
+          }
         } else if (data?.session) {
-          // Auto-signed in
+          // Auto-signed in fallback
           if (onAuthSuccess) onAuthSuccess(data.user);
           onClose();
         }
@@ -166,11 +232,109 @@ export default function AuthModal({
     }
   }
 
-  function handleSwitchMode(newMode) {
-    setMode(newMode);
+  async function handleForgotSubmit(e) {
+    if (e && e.preventDefault) e.preventDefault();
     setErrorMessage("");
     setSuccessMessage("");
-    setConfirmationPending(false);
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setErrorMessage("Please enter your email address.");
+      return;
+    }
+    if (!/\S+@\S+\.\S+/.test(trimmedEmail)) {
+      setErrorMessage("Please enter a valid email address.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: window.location.origin,
+      });
+
+      if (error) {
+        setErrorMessage(formatAuthError(error));
+      } else {
+        setForgotSent(true);
+        setSuccessMessage(
+          `Password reset link sent! If an account exists for ${trimmedEmail}, you will receive a reset email shortly.`
+        );
+      }
+    } catch (err) {
+      setErrorMessage(formatAuthError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResetPassword(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    if (!newPassword) {
+      setErrorMessage("Please enter your new password.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setErrorMessage("Password must be at least 6 characters long.");
+      return;
+    }
+    if (!confirmPassword) {
+      setErrorMessage("Please confirm your new password.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMessage("Passwords do not match. Please verify both fields.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        setErrorMessage(formatAuthError(error));
+      } else {
+        setResetComplete(true);
+        setSuccessMessage("Your password has been successfully updated!");
+        // Clear recovery hash from URL
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+        if (onAuthSuccess) {
+          onAuthSuccess(data?.user);
+        }
+      }
+    } catch (err) {
+      setErrorMessage(formatAuthError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Derive heading title and subtitle safely without complex inline JSX ternaries
+  let headingTitle = "Welcome back";
+  let headingSubtitle = "Pick up where curiosity left off.";
+
+  if (existingUserDetected) {
+    headingTitle = "Account found";
+    headingSubtitle = "This email may already be registered. Try logging in.";
+  } else if (confirmationPending) {
+    headingTitle = "Check your email";
+    headingSubtitle = `We sent an activation link to ${email.trim()}.`;
+  } else if (mode === "signup") {
+    headingTitle = "Join the blu community";
+    headingSubtitle = "Ask questions, share wisdom, and find your circle.";
+  } else if (mode === "forgot") {
+    headingTitle = "Reset your password";
+    headingSubtitle = "Enter your email and we'll send you a password reset link.";
+  } else if (mode === "reset") {
+    headingTitle = "Create new password";
+    headingSubtitle = "Choose a strong password to secure your blu account.";
   }
 
   return (
@@ -194,36 +358,52 @@ export default function AuthModal({
           ✕
         </button>
 
+        {mode === "forgot" && (
+          <button
+            type="button"
+            className="auth-back-link"
+            onClick={() => handleSwitchMode("login")}
+            aria-label="Back to log in"
+          >
+            ← Back to log in
+          </button>
+        )}
+
         <div className="auth-modal-brand">
           <BluLogo size={42} showWordmark={true} wordmarkSize={30} gap={11} />
         </div>
 
-        <div className="auth-modal-nav-tabs">
-          <button
-            type="button"
-            className={`auth-tab-btn ${mode === "login" ? "active" : ""}`}
-            onClick={() => handleSwitchMode("login")}
-          >
-            Log in
-          </button>
-          <button
-            type="button"
-            className={`auth-tab-btn ${mode === "signup" ? "active" : ""}`}
-            onClick={() => handleSwitchMode("signup")}
-          >
-            Sign up
-          </button>
-        </div>
+        {/* Tab switcher: Only shown in standard login / signup mode */}
+        {(mode === "login" || mode === "signup") && !confirmationPending && !existingUserDetected && (
+          <div className="auth-modal-nav-tabs">
+            <button
+              type="button"
+              className={`auth-tab-btn ${mode === "login" ? "active" : ""}`}
+              onClick={() => handleSwitchMode("login")}
+            >
+              Log in
+            </button>
+            <button
+              type="button"
+              className={`auth-tab-btn ${mode === "signup" ? "active" : ""}`}
+              onClick={() => handleSwitchMode("signup")}
+            >
+              Sign up
+            </button>
+          </div>
+        )}
 
+        {contextNotice && !confirmationPending && !existingUserDetected && (
+          <div className="auth-context-notice-pill" role="status">
+            <span className="auth-notice-sparkle" aria-hidden="true">✦</span>
+            <span>{contextNotice}</span>
+          </div>
+        )}
+
+        {/* Dynamic Headings */}
         <div className="auth-modal-heading">
-          <h2 id="auth-modal-title">
-            {mode === "login" ? "Welcome back" : "Join the blu community"}
-          </h2>
-          <p>
-            {mode === "login"
-              ? "Pick up where curiosity left off."
-              : "Ask questions, share wisdom, and find your circle."}
-          </p>
+          <h2 id="auth-modal-title">{headingTitle}</h2>
+          <p>{headingSubtitle}</p>
         </div>
 
         {errorMessage && (
@@ -233,27 +413,272 @@ export default function AuthModal({
           </div>
         )}
 
-        {successMessage && (
+        {successMessage && !forgotSent && !resetComplete && !confirmationPending && (
           <div className="auth-alert auth-alert-success" role="status">
             <span className="auth-alert-icon">✓</span>
             <span className="auth-alert-text">{successMessage}</span>
           </div>
         )}
 
-        {confirmationPending ? (
-          <div className="auth-confirmation-panel">
-            <p className="auth-confirmation-note">
-              Once you confirm your email, click below to log in.
+        {/* ----------------- FORGOT PASSWORD: CONFIRMATION SENT ----------------- */}
+        {mode === "forgot" && forgotSent && (
+          <div className="auth-status-card">
+            <div className="auth-status-icon" aria-hidden="true">✉️</div>
+            <h3>Check your email</h3>
+            <p>
+              We sent a password reset link to{" "}
+              <strong className="auth-highlight">{email.trim()}</strong>.
+              Click the link in the email to set a new password.
             </p>
-            <button
-              type="button"
-              className="auth-submit-btn"
-              onClick={() => handleSwitchMode("login")}
-            >
-              Go to Log in
-            </button>
+            <p className="auth-status-subnote">
+              If you don't see the email within a minute or two, check your spam or junk folder.
+            </p>
+            <div className="auth-status-actions">
+              <button
+                type="button"
+                className="auth-submit-btn"
+                onClick={() => handleSwitchMode("login")}
+              >
+                Back to log in
+              </button>
+              <button
+                type="button"
+                className="auth-secondary-btn"
+                onClick={handleForgotSubmit}
+                disabled={loading}
+              >
+                {loading ? (
+                  <span className="auth-spinner">
+                    <span className="auth-spinner-dot" />
+                    <span className="auth-spinner-dot" />
+                    <span className="auth-spinner-dot" />
+                  </span>
+                ) : (
+                  "Resend reset link"
+                )}
+              </button>
+            </div>
           </div>
-        ) : (
+        )}
+
+        {/* ----------------- FORGOT PASSWORD: FORM ----------------- */}
+        {mode === "forgot" && !forgotSent && (
+          <form className="auth-form" onSubmit={handleForgotSubmit} noValidate>
+            <div className="auth-form-field">
+              <label htmlFor="auth-forgot-email">Email address</label>
+              <input
+                id="auth-forgot-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                autoFocus
+                autoComplete="email"
+                disabled={loading}
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="auth-submit-btn"
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="auth-spinner">
+                  <span className="auth-spinner-dot" />
+                  <span className="auth-spinner-dot" />
+                  <span className="auth-spinner-dot" />
+                </span>
+              ) : (
+                "Send reset link"
+              )}
+            </button>
+
+            <div className="auth-modal-footer">
+              <p>
+                Remember your password?{" "}
+                <button
+                  type="button"
+                  className="auth-switch-link"
+                  onClick={() => handleSwitchMode("login")}
+                >
+                  Log in
+                </button>
+              </p>
+            </div>
+          </form>
+        )}
+
+        {/* ----------------- RESET PASSWORD: COMPLETE ----------------- */}
+        {mode === "reset" && resetComplete && (
+          <div className="auth-status-card">
+            <div className="auth-status-icon success" aria-hidden="true">✓</div>
+            <h3>Password updated!</h3>
+            <p>
+              Your password has been changed successfully. You are now signed in and ready to explore blu.
+            </p>
+            <div className="auth-status-actions">
+              <button
+                type="button"
+                className="auth-submit-btn"
+                onClick={onClose}
+              >
+                Continue to blu ↗
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ----------------- RESET PASSWORD: FORM ----------------- */}
+        {mode === "reset" && !resetComplete && (
+          <form className="auth-form" onSubmit={handleResetPassword} noValidate>
+            <div className="auth-form-field">
+              <label htmlFor="auth-new-password">New password</label>
+              <div className="auth-password-wrapper">
+                <input
+                  id="auth-new-password"
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                  required
+                  autoFocus
+                  autoComplete="new-password"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                  tabIndex={-1}
+                >
+                  {showNewPassword ? "👁" : "👁‍🗨"}
+                </button>
+              </div>
+              <span className="auth-form-hint">Must be at least 6 characters.</span>
+            </div>
+
+            <div className="auth-form-field">
+              <label htmlFor="auth-confirm-password">Confirm new password</label>
+              <div className="auth-password-wrapper">
+                <input
+                  id="auth-confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your new password"
+                  required
+                  autoComplete="new-password"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? "👁" : "👁‍🗨"}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="auth-submit-btn"
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="auth-spinner">
+                  <span className="auth-spinner-dot" />
+                  <span className="auth-spinner-dot" />
+                  <span className="auth-spinner-dot" />
+                </span>
+              ) : (
+                "Update password"
+              )}
+            </button>
+
+            <div className="auth-modal-footer">
+              <p>
+                Back to{" "}
+                <button
+                  type="button"
+                  className="auth-switch-link"
+                  onClick={() => handleSwitchMode("login")}
+                >
+                  Log in
+                </button>
+              </p>
+            </div>
+          </form>
+        )}
+
+        {/* ----------------- LOGIN / SIGNUP: CONFIRMATION PENDING ----------------- */}
+        {(mode === "login" || mode === "signup") && confirmationPending && (
+          <div className="auth-confirmation-panel">
+            <div className="auth-status-icon" aria-hidden="true">✉️</div>
+            <p className="auth-confirmation-note">
+              Account created! A confirmation link has been sent to{" "}
+              <strong className="auth-highlight">{email.trim()}</strong>.
+              Please check your inbox to activate your account.
+            </p>
+            <div className="auth-status-actions">
+              <button
+                type="button"
+                className="auth-submit-btn"
+                onClick={() => handleSwitchMode("login")}
+              >
+                Go to Log in
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ----------------- LOGIN / SIGNUP: EXISTING USER GUIDANCE ----------------- */}
+        {(mode === "login" || mode === "signup") && !confirmationPending && existingUserDetected && (
+          <div className="auth-existing-user-panel">
+            <div className="auth-status-icon" aria-hidden="true">💡</div>
+
+            <div className="auth-status-actions">
+              <button
+                type="button"
+                className="auth-submit-btn"
+                onClick={() => handleSwitchMode("login")}
+              >
+                Log in
+              </button>
+              <button
+                type="button"
+                className="auth-secondary-btn"
+                onClick={() => handleSwitchMode("forgot")}
+              >
+                Forgot password?
+              </button>
+            </div>
+            <div className="auth-modal-footer">
+              <p>
+                Need to use a different email?{" "}
+                <button
+                  type="button"
+                  className="auth-switch-link"
+                  onClick={() => {
+                    setExistingUserDetected(false);
+                    setErrorMessage("");
+                    setEmail("");
+                  }}
+                >
+                  Try another email
+                </button>
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ----------------- LOGIN / SIGNUP: MAIN FORM ----------------- */}
+        {(mode === "login" || mode === "signup") && !confirmationPending && !existingUserDetected && (
           <>
             <button
               type="button"
@@ -304,111 +729,122 @@ export default function AuthModal({
             </div>
 
             <form className="auth-form" onSubmit={handleSubmit} noValidate>
-            {mode === "signup" && (
-              <div className="auth-form-field">
-                <label htmlFor="auth-full-name">Full name</label>
-                <input
-                  id="auth-full-name"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Maya Lin"
-                  required
-                  autoFocus
-                  autoComplete="name"
-                  disabled={loading}
-                />
-              </div>
-            )}
-
-            <div className="auth-form-field">
-              <label htmlFor="auth-email">Email address</label>
-              <input
-                id="auth-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                autoFocus={mode === "login"}
-                autoComplete="email"
-                disabled={loading}
-              />
-            </div>
-
-            <div className="auth-form-field">
-              <label htmlFor="auth-password">Password</label>
-              <div className="auth-password-wrapper">
-                <input
-                  id="auth-password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={
-                    mode === "signup" ? "At least 6 characters" : "Your password"
-                  }
-                  required
-                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                  disabled={loading}
-                />
-                <button
-                  type="button"
-                  className="auth-password-toggle"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  tabIndex={-1}
-                >
-                  {showPassword ? "👁" : "👁‍🗨"}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className="auth-submit-btn"
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="auth-spinner">
-                  <span className="auth-spinner-dot" />
-                  <span className="auth-spinner-dot" />
-                  <span className="auth-spinner-dot" />
-                </span>
-              ) : mode === "login" ? (
-                "Log in to blu"
-              ) : (
-                "Create blu account"
+              {mode === "signup" && (
+                <div className="auth-form-field">
+                  <label htmlFor="auth-full-name">Full name</label>
+                  <input
+                    id="auth-full-name"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="e.g. Maya Lin"
+                    required
+                    autoFocus
+                    autoComplete="name"
+                    disabled={loading}
+                  />
+                </div>
               )}
-            </button>
-          </form>
-        </>
-      )}
 
-        <div className="auth-modal-footer">
-          {mode === "login" ? (
-            <p>
-              Don't have an account yet?{" "}
+              <div className="auth-form-field">
+                <label htmlFor="auth-email">Email address</label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  autoFocus={mode === "login"}
+                  autoComplete="email"
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="auth-form-field">
+                <div className="auth-field-header">
+                  <label htmlFor="auth-password">Password</label>
+                  {mode === "login" && (
+                    <button
+                      type="button"
+                      className="auth-forgot-link"
+                      onClick={() => handleSwitchMode("forgot")}
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <div className="auth-password-wrapper">
+                  <input
+                    id="auth-password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={
+                      mode === "signup" ? "At least 6 characters" : "Your password"
+                    }
+                    required
+                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                    disabled={loading}
+                  />
+                  <button
+                    type="button"
+                    className="auth-password-toggle"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? "👁" : "👁‍🗨"}
+                  </button>
+                </div>
+              </div>
+
               <button
-                type="button"
-                className="auth-switch-link"
-                onClick={() => handleSwitchMode("signup")}
+                type="submit"
+                className="auth-submit-btn"
+                disabled={loading}
               >
-                Sign up
+                {loading ? (
+                  <span className="auth-spinner">
+                    <span className="auth-spinner-dot" />
+                    <span className="auth-spinner-dot" />
+                    <span className="auth-spinner-dot" />
+                  </span>
+                ) : mode === "login" ? (
+                  "Log in to blu"
+                ) : (
+                  "Create blu account"
+                )}
               </button>
-            </p>
-          ) : (
-            <p>
-              Already have an account?{" "}
-              <button
-                type="button"
-                className="auth-switch-link"
-                onClick={() => handleSwitchMode("login")}
-              >
-                Log in
-              </button>
-            </p>
-          )}
-        </div>
+            </form>
+
+            <div className="auth-modal-footer">
+              {mode === "login" ? (
+                <p>
+                  Don't have an account yet?{" "}
+                  <button
+                    type="button"
+                    className="auth-switch-link"
+                    onClick={() => handleSwitchMode("signup")}
+                  >
+                    Sign up
+                  </button>
+                </p>
+              ) : (
+                <p>
+                  Already have an account?{" "}
+                  <button
+                    type="button"
+                    className="auth-switch-link"
+                    onClick={() => handleSwitchMode("login")}
+                  >
+                    Log in
+                  </button>
+                </p>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
