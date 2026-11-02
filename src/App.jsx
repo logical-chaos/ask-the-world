@@ -398,6 +398,28 @@ function createId() {
   return Date.now();
 }
 
+function formatTimeAgo(isoString) {
+  if (!isoString) return "Just now";
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    if (diffMs < 0) return "Just now";
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return "Just now";
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  } catch {
+    return "Recently";
+  }
+}
+
 function App() {
   const [initialRecovery] = useState(getInitialAuthRecoveryState);
   const [questions, setQuestions] = useState(initialQuestions);
@@ -610,6 +632,39 @@ function App() {
   useEffect(() => {
     let isMounted = true;
 
+    async function syncProfileWithDatabase(sessionUser) {
+      if (!sessionUser) return;
+      try {
+        const { data: dbProfile, error } = await supabase
+          .from("profiles")
+          .select("id, username, full_name, bio, interests, avatar_id, photo_url, cover_hue, contribution_score")
+          .eq("id", sessionUser.id)
+          .maybeSingle();
+
+        if (dbProfile && !error && isMounted) {
+          setProfile((prev) => {
+            const meta = sessionUser.user_metadata || {};
+            const persistentName = dbProfile.full_name || meta.full_name || meta.name || prev.name;
+            const persistentPhoto = dbProfile.photo_url || meta.avatar_url || meta.picture || prev.photoUrl;
+            const persistentAvatarId = dbProfile.avatar_id || meta.avatar_id || prev.avatarId || getDefaultAvatarId(sessionUser.email || sessionUser.id || "blu");
+            return {
+              ...prev,
+              id: dbProfile.id,
+              username: dbProfile.username,
+              name: persistentName,
+              bio: dbProfile.bio ?? prev.bio,
+              interests: Array.isArray(dbProfile.interests) && dbProfile.interests.length > 0 ? dbProfile.interests : prev.interests,
+              avatarId: persistentAvatarId,
+              photoUrl: persistentPhoto,
+              contributionScore: dbProfile.contribution_score ?? 0,
+            };
+          });
+        }
+      } catch (err) {
+        console.warn("Error fetching profile from Supabase:", err);
+      }
+    }
+
     async function restoreSession() {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -653,6 +708,10 @@ function App() {
                 avatarId: persistentAvatarId,
               };
             });
+          }
+
+          if (session?.user) {
+            syncProfileWithDatabase(session.user);
           }
         }
       } catch (err) {
@@ -706,6 +765,10 @@ function App() {
           });
         }
 
+        if (session?.user) {
+          syncProfileWithDatabase(session.user);
+        }
+
         if (event === "PASSWORD_RECOVERY") {
           setShowIntro(false);
           setAuthModalMode("reset");
@@ -730,6 +793,81 @@ function App() {
     return () => {
       isMounted = false;
       subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Fetch questions from Supabase on app initialization with fallback to demo posts
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadQuestions() {
+      try {
+        const { data, error } = await supabase
+          .from("questions")
+          .select(`
+            id,
+            author_id,
+            title,
+            body,
+            tags,
+            photo_url,
+            video_url,
+            votes_count,
+            answers_count,
+            is_edited,
+            created_at,
+            profiles:author_id (
+              id,
+              username,
+              full_name,
+              avatar_id,
+              photo_url
+            )
+          `)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.warn("Could not load questions from database, using initial posts fallback:", error.message);
+          return;
+        }
+
+        if (isMounted && Array.isArray(data) && data.length > 0) {
+          const remoteQuestions = data.map((q) => {
+            const authorProf = Array.isArray(q.profiles) ? q.profiles[0] : q.profiles;
+            const authorDisplayName = authorProf?.full_name || authorProf?.username || "Explorer";
+            return {
+              id: q.id,
+              author_id: q.author_id,
+              authorId: q.author_id,
+              title: q.title,
+              body: q.body,
+              tags: Array.isArray(q.tags) && q.tags.length > 0 ? q.tags : ["General"],
+              author: authorDisplayName,
+              authorPhoto: authorProf?.photo_url || null,
+              authorAvatarId: authorProf?.avatar_id || getDefaultAvatarId(authorProf?.username || q.author_id || authorDisplayName),
+              votes: q.votes_count || 0,
+              answers: q.answers_count || 0,
+              isEdited: Boolean(q.is_edited),
+              time: formatTimeAgo(q.created_at),
+              photoUrl: q.photo_url || null,
+              videoUrl: q.video_url || null,
+              created_at: q.created_at,
+            };
+          });
+
+          // Keep non-colliding initial questions as fallback at the end so demo content is preserved
+          const remoteIds = new Set(remoteQuestions.map((q) => String(q.id)));
+          const nonCollidingMock = initialQuestions.filter((q) => !remoteIds.has(String(q.id)));
+          setQuestions([...remoteQuestions, ...nonCollidingMock]);
+        }
+      } catch (err) {
+        console.warn("Exception loading questions from database:", err);
+      }
+    }
+
+    loadQuestions();
+    return () => {
+      isMounted = false;
     };
   }, []);
 
@@ -818,7 +956,7 @@ function App() {
     (circle) => circle.id === selectedCircleId
   );
 
-  function addQuestion(e) {
+  async function addQuestion(e) {
     e.preventDefault();
     if (!user) {
       triggerAuthPrompt({
@@ -832,24 +970,77 @@ function App() {
     }
     if (!newQuestion.trim()) return;
 
-    setQuestions((previous) => [
-      {
-        id: createId(),
-        title: newQuestion.trim(),
-        body: "A new discussion from the blu community.",
-        tags: ["Community"],
-        author: user.user_metadata?.full_name || user.email?.split("@")[0] || profile.name || "You",
-        votes: 0,
-        answers: 0,
-      },
-      ...previous,
-    ]);
+    try {
+      const { data, error } = await supabase
+        .from("questions")
+        .insert({
+          author_id: user.id,
+          title: newQuestion.trim(),
+          body: "A new discussion from the blu community.",
+          tags: ["Community"],
+        })
+        .select(`
+          id,
+          author_id,
+          title,
+          body,
+          tags,
+          photo_url,
+          video_url,
+          votes_count,
+          answers_count,
+          is_edited,
+          created_at,
+          profiles:author_id (
+            id,
+            username,
+            full_name,
+            avatar_id,
+            photo_url
+          )
+        `)
+        .single();
 
-    setNewQuestion("");
-    setShowAskForm(false);
-    setActivePage("explore");
+      if (error) {
+        console.error("Failed to add question to Supabase:", error);
+        if (error.code === "23503" || error.message?.includes("questions_author_id_fkey")) {
+          alert("Profile initialization in progress. Please refresh the page and try again.");
+        } else {
+          alert(`Could not post question: ${error.message || "Database error"}`);
+        }
+        return;
+      }
+
+      const authorProfile = Array.isArray(data?.profiles) ? data.profiles[0] : data?.profiles;
+      const newPost = {
+        id: data.id,
+        author_id: data.author_id,
+        authorId: data.author_id,
+        title: data.title,
+        body: data.body,
+        tags: data.tags,
+        author: authorProfile?.full_name || profile?.name || user.user_metadata?.full_name || "You",
+        authorPhoto: authorProfile?.photo_url || profile?.photoUrl || user?.user_metadata?.avatar_url || null,
+        authorAvatarId: authorProfile?.avatar_id || profile?.avatarId || getDefaultAvatarId(user.email || user.id || "blu"),
+        votes: data.votes_count || 0,
+        answers: data.answers_count || 0,
+        time: "Just now",
+        photoUrl: null,
+        videoUrl: null,
+        created_at: data.created_at,
+      };
+
+      setQuestions((previous) => [newPost, ...previous]);
+      setNewQuestion("");
+      setShowAskForm(false);
+      setActivePage("explore");
+    } catch (err) {
+      console.error("Exception adding question:", err);
+      alert("Failed to ask question. Please check your connection and try again.");
+    }
   }
-  function handlePublishPost({ title, body, tag, tags, photoUrl, videoUrl }) {
+
+  async function handlePublishPost({ title, body, tag, tags, photoUrl, videoUrl }) {
     if (!user) {
       triggerAuthPrompt({
         action: "askQuestion",
@@ -863,39 +1054,100 @@ function App() {
 
     const selectedTag = tag && tag !== "All" ? tag : "Technology";
     const postTags = Array.isArray(tags) && tags.length > 0 ? tags : [selectedTag];
+    const postBody = body || "A new discussion from the blu community.";
 
-    const newPost = {
-      id: createId(),
-      title,
-      body: body || "A new discussion from the blu community.",
-      tags: postTags,
-      author: user.user_metadata?.full_name || user.email?.split("@")[0] || profile?.name || "You",
-      authorPhoto: profile?.photoUrl ? profile.photoUrl : (profile?.avatarId ? null : (user?.user_metadata?.avatar_url || null)),
-      authorAvatarId: profile?.avatarId || user?.user_metadata?.avatar_id || getDefaultAvatarId(user.email || user.id || "blu"),
-      votes: 0,
-      answers: 0,
-      time: "Just now",
-      photoUrl: photoUrl || null,
-      videoUrl: videoUrl || null,
-    };
+    try {
+      const { data, error } = await supabase
+        .from("questions")
+        .insert({
+          author_id: user.id,
+          title: title.trim(),
+          body: postBody,
+          tags: postTags,
+          photo_url: photoUrl || null,
+          video_url: videoUrl || null,
+        })
+        .select(`
+          id,
+          author_id,
+          title,
+          body,
+          tags,
+          photo_url,
+          video_url,
+          votes_count,
+          answers_count,
+          is_edited,
+          created_at,
+          profiles:author_id (
+            id,
+            username,
+            full_name,
+            avatar_id,
+            photo_url
+          )
+        `)
+        .single();
 
-    setQuestions((prev) => [newPost, ...prev]);
-    setShowAskForm(false);
-    setActivePage("explore");
+      if (error) {
+        console.error("Supabase question insertion error:", error);
+        if (error.code === "23503" || error.message?.includes("questions_author_id_fkey")) {
+          alert("Profile initialization in progress. Please refresh the page and try again.");
+        } else {
+          alert(`Could not publish post: ${error.message || "Database error"}`);
+        }
+        return;
+      }
+
+      const authorProfile = Array.isArray(data?.profiles) ? data.profiles[0] : data?.profiles;
+      const newPost = {
+        id: data.id,
+        author_id: data.author_id,
+        authorId: data.author_id,
+        title: data.title,
+        body: data.body,
+        tags: data.tags,
+        author: authorProfile?.full_name || profile?.name || user.user_metadata?.full_name || "You",
+        authorPhoto: authorProfile?.photo_url || profile?.photoUrl || user?.user_metadata?.avatar_url || null,
+        authorAvatarId: authorProfile?.avatar_id || profile?.avatarId || getDefaultAvatarId(user.email || user.id || "blu"),
+        votes: data.votes_count || 0,
+        answers: data.answers_count || 0,
+        time: "Just now",
+        photoUrl: data.photo_url || null,
+        videoUrl: data.video_url || null,
+        created_at: data.created_at,
+      };
+
+      setQuestions((prev) => [newPost, ...prev]);
+      setShowAskForm(false);
+      setActivePage("explore");
+    } catch (err) {
+      console.error("Exception publishing post:", err);
+      alert("Failed to publish post. Please check your connection and try again.");
+    }
   }
 
-  function handleEditPost(postId, updatedFields) {
+  async function handleEditPost(postId, updatedFields) {
     if (!user) return;
+
+    if (typeof postId === "string" && postId.length > 20) {
+      try {
+        const updatePayload = { is_edited: true };
+        if (updatedFields.title !== undefined) updatePayload.title = updatedFields.title;
+        if (updatedFields.body !== undefined) updatePayload.body = updatedFields.body;
+        if (updatedFields.tags !== undefined) updatePayload.tags = updatedFields.tags;
+        if (updatedFields.photoUrl !== undefined) updatePayload.photo_url = updatedFields.photoUrl;
+        if (updatedFields.videoUrl !== undefined) updatePayload.video_url = updatedFields.videoUrl;
+
+        const { error } = await supabase.from("questions").update(updatePayload).eq("id", postId);
+        if (error) console.error("Error updating question in Supabase:", error);
+      } catch (err) {
+        console.error("Exception updating question:", err);
+      }
+    }
+
     setQuestions((prev) =>
-      prev.map((q) =>
-        q.id === postId
-          ? {
-            ...q,
-            ...updatedFields,
-            isEdited: true,
-          }
-          : q
-      )
+      prev.map((q) => (q.id === postId ? { ...q, ...updatedFields, isEdited: true } : q))
     );
 
     // If category was changed while a specific topic is active, switch to All so the post never disappears
@@ -910,11 +1162,22 @@ function App() {
     }
   }
 
-  function handleDeletePost(postId) {
+  async function handleDeletePost(postId) {
     if (!user) return;
+
+    if (typeof postId === "string" && postId.length > 20) {
+      try {
+        const { error } = await supabase.from("questions").delete().eq("id", postId);
+        if (error) console.error("Error deleting question from Supabase:", error);
+      } catch (err) {
+        console.error("Exception deleting question:", err);
+      }
+    }
+
     setQuestions((prev) => prev.filter((q) => q.id !== postId));
     setSavedPosts((prev) => prev.filter((id) => id !== postId));
   }
+
   function handleAddAnswer(questionId, text, media, authedUser) {
     const activeUser = authedUser || user;
     if (!activeUser) {
@@ -1296,6 +1559,21 @@ function App() {
     }
 
     if (user) {
+      try {
+        await supabase
+          .from("profiles")
+          .update({
+            full_name: updatedProfile.name,
+            bio: updatedProfile.bio,
+            interests: updatedProfile.interests,
+            avatar_id: updatedProfile.avatarId,
+            photo_url: updatedProfile.photoUrl,
+          })
+          .eq("id", user.id);
+      } catch (err) {
+        console.warn("Supabase profiles table update exception:", err);
+      }
+
       try {
         const { data, error } = await supabase.auth.updateUser({
           data: {

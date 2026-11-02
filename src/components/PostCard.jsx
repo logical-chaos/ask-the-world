@@ -77,11 +77,13 @@ export default function PostCard({
 
   const isAuthor = Boolean(
     question.author === "You" ||
-    (user &&
-      (question.author === user.user_metadata?.full_name ||
-        question.author === user.user_metadata?.name ||
-        question.author === user.email?.split("@")[0] ||
-        (profile && question.author === profile.name)))
+      (user &&
+        (question.author_id === user.id ||
+          question.authorId === user.id ||
+          question.author === user.user_metadata?.full_name ||
+          question.author === user.user_metadata?.name ||
+          question.author === user.email?.split("@")[0] ||
+          (profile && question.author === profile.name)))
   );
 
   function handleShare(e) {
@@ -372,8 +374,8 @@ export default function PostCard({
               name={question.author}
               user={isAuthor ? user : null}
               profile={isAuthor ? profile : null}
-              photoUrl={isAuthor ? (profile ? profile.photoUrl : (user?.user_metadata?.avatar_url || question.authorPhoto)) : question.authorPhoto}
-              avatarId={isAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id) : question.authorAvatarId}
+              photoUrl={isAuthor ? (profile?.photoUrl || user?.user_metadata?.avatar_url || question.authorPhoto || null) : (question.authorPhoto || null)}
+              avatarId={isAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id || question.authorAvatarId) : question.authorAvatarId}
               size={24}
               className={`author-avatar-img ${onOpenProfile ? "author-avatar-clickable" : ""}`}
               onClick={onOpenProfile ? (e) => { e.stopPropagation(); onOpenProfile(question.author, question); } : null}
@@ -875,8 +877,8 @@ export default function PostCard({
                         name={ans.author}
                         user={isAnsAuthor ? user : null}
                         profile={isAnsAuthor ? profile : null}
-                        photoUrl={isAnsAuthor ? (profile ? profile.photoUrl : (user?.user_metadata?.avatar_url || ans.authorPhoto)) : ans.authorPhoto}
-                        avatarId={isAnsAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id) : ans.authorAvatarId}
+                        photoUrl={isAnsAuthor ? (profile?.photoUrl || user?.user_metadata?.avatar_url || ans.authorPhoto || null) : (ans.authorPhoto || null)}
+                        avatarId={isAnsAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id || ans.authorAvatarId) : ans.authorAvatarId}
                         size={22}
                         className={onOpenProfile ? "author-avatar-clickable" : ""}
                         onClick={onOpenProfile ? (e) => { e.stopPropagation(); onOpenProfile(ans.author, ans); } : null}
@@ -1141,8 +1143,8 @@ export default function PostCard({
                                   name={reply.author}
                                   user={isReplyAuthor ? user : null}
                                   profile={isReplyAuthor ? profile : null}
-                                  photoUrl={isReplyAuthor ? (profile ? profile.photoUrl : (user?.user_metadata?.avatar_url || reply.authorPhoto)) : reply.authorPhoto}
-                                  avatarId={isReplyAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id) : reply.authorAvatarId}
+                                  photoUrl={isReplyAuthor ? (profile?.photoUrl || user?.user_metadata?.avatar_url || reply.authorPhoto || null) : (reply.authorPhoto || null)}
+                                  avatarId={isReplyAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id || reply.authorAvatarId) : reply.authorAvatarId}
                                   size={18}
                                   className={onOpenProfile ? "author-avatar-clickable" : ""}
                                   onClick={onOpenProfile ? (e) => { e.stopPropagation(); onOpenProfile(reply.author, reply); } : null}

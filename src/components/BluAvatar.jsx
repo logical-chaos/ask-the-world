@@ -14,7 +14,7 @@ import { getAvatar, getDefaultAvatarId } from "./avatars";
 export default function BluAvatar({
   user = null,
   profile = null,
-  photoUrl,
+  photoUrl = null,
   avatarId = null,
   name = "",
   size = 40,
@@ -25,29 +25,20 @@ export default function BluAvatar({
   clickable = true,
   onClick = null,
 }) {
-  // Derive photo URL - prioritizes explicit photoUrl if passed as string, then profile, then user metadata
+  // Derive photo URL - prioritizes explicit photoUrl if passed as string, then profile custom photo, then user OAuth photo
   let resolvedPhoto = null;
   if (typeof photoUrl === "string" && photoUrl.trim() !== "") {
     resolvedPhoto = photoUrl.trim();
   } else if (photoUrl === false || photoUrl === null) {
     resolvedPhoto = null;
-  } else if (profile !== null && profile !== undefined) {
-    if (profile.photoUrl) {
-      resolvedPhoto = profile.photoUrl;
-    } else if (profile.avatarUrl) {
-      resolvedPhoto = profile.avatarUrl;
-    } else if (profile.avatarId) {
-      // User explicitly selected an avatar companion without a custom photo
-      resolvedPhoto = null;
-    } else if (user?.user_metadata) {
-      resolvedPhoto =
-        user.user_metadata.avatar_url ||
-        (user.user_metadata.avatar_id ? null : (user.user_metadata.picture || null));
-    }
-  } else if (user?.user_metadata) {
-    resolvedPhoto =
-      user.user_metadata.avatar_url ||
-      (user.user_metadata.avatar_id ? null : (user.user_metadata.picture || null));
+  } else if (typeof profile?.photoUrl === "string" && profile.photoUrl.trim() !== "") {
+    resolvedPhoto = profile.photoUrl.trim();
+  } else if (typeof profile?.avatarUrl === "string" && profile.avatarUrl.trim() !== "") {
+    resolvedPhoto = profile.avatarUrl.trim();
+  } else if (typeof user?.user_metadata?.avatar_url === "string" && user.user_metadata.avatar_url.trim() !== "") {
+    resolvedPhoto = user.user_metadata.avatar_url.trim();
+  } else if (typeof user?.user_metadata?.picture === "string" && user.user_metadata.picture.trim() !== "") {
+    resolvedPhoto = user.user_metadata.picture.trim();
   }
 
   const [prevPhoto, setPrevPhoto] = useState(resolvedPhoto);

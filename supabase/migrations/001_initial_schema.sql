@@ -2,6 +2,7 @@
 -- Migration: 001_initial_schema.sql
 -- Description: Core Schema, Foreign Keys, Indexes, Triggers, Realtime, Storage, and RLS for blu
 -- Target: PostgreSQL / Supabase
+-- Version: 1.1.0 (Production-Ready Audit Refinement)
 -- Version: 1.2.0 (Production-Hardened Post-Audit)
 -- ==============================================================================
 
@@ -65,12 +66,12 @@ CREATE TABLE IF NOT EXISTS public.circles (
 -- Seed predefined circles metadata so relationships & initial UI are immediately ready
 INSERT INTO public.circles (id, name, icon, description, color, is_private, members_count)
 VALUES
-  ('tech', 'Tech & Coding', '💻', 'Code, projects, DSA, debugging, and tech talk.', 'lavender', FALSE, 0),
-  ('study', 'Study Circle', '📚', 'Study together, exchange notes, and learn.', 'peach', FALSE, 0),
-  ('art', 'Art, Music & Dance', '🎨', 'Create, share your work, and find inspiration.', 'pink', FALSE, 0),
-  ('life', 'Life & Everything', '🌙', 'Friendships, feelings, opinions, and everyday life.', 'blue', FALSE, 0),
-  ('career', 'Careers & Growth', '🚀', 'Skills, opportunities, and career conversations.', 'green', FALSE, 0),
-  ('books', 'Books & Ideas', '💡', 'Books, interesting ideas, and curious minds.', 'yellow', FALSE, 0)
+  ('tech', 'Tech & Coding', '💻', 'Code, projects, DSA, debugging, and tech talk.', FALSE, 0),
+  ('study', 'Study Circle', '📚', 'Study together, exchange notes, and learn.', FALSE, 0),
+  ('art', 'Art, Music & Dance', '🎨', 'Create, share your work, and find inspiration.', FALSE, 0),
+  ('life', 'Life & Everything', '🌙', 'Friendships, feelings, opinions, and everyday life.', FALSE, 0),
+  ('career', 'Careers & Growth', '🚀', 'Skills, opportunities, and career conversations.', FALSE, 0),
+  ('books', 'Books & Ideas', '💡', 'Books, interesting ideas, and curious minds.', FALSE, 0)
 ON CONFLICT (id) DO NOTHING;
 
 -- ------------------------------------------------------------------------------
@@ -211,6 +212,7 @@ CREATE TABLE IF NOT EXISTS public.circle_members (
 CREATE INDEX IF NOT EXISTS idx_circle_members_user ON public.circle_members(user_id);
 
 -- ------------------------------------------------------------------------------
+-- 9. Circle Messages Table (Room Live Chat)
 -- 9. Circle Invitations Table (Authorized Pathway for Private Circles)
 -- Manages invitations and approvals for private circle access
 -- ------------------------------------------------------------------------------
@@ -245,6 +247,7 @@ CREATE INDEX IF NOT EXISTS idx_circle_messages_circle ON public.circle_messages(
 ALTER TABLE public.circle_messages REPLICA IDENTITY FULL;
 
 -- ------------------------------------------------------------------------------
+-- 10. Circle Discussions Table (Long-form circle threads)
 -- 11. Circle Discussions Table (Long-form circle threads)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.circle_discussions (
@@ -266,6 +269,7 @@ CREATE TRIGGER trg_circle_discussions_updated_at
   EXECUTE FUNCTION public.handle_updated_at();
 
 -- ------------------------------------------------------------------------------
+-- 11. Circle Discussion Comments Table (Proper Threaded Comments)
 -- 12. Circle Discussion Comments Table (Proper Threaded Comments)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.circle_discussion_comments (
@@ -291,6 +295,7 @@ CREATE TRIGGER trg_circle_disc_comments_updated_at
   EXECUTE FUNCTION public.handle_updated_at();
 
 -- ------------------------------------------------------------------------------
+-- 12. Saved Posts Table
 -- 13. Saved Posts Table
 -- User bookmarks / saved discussions
 -- ------------------------------------------------------------------------------
@@ -304,6 +309,7 @@ CREATE TABLE IF NOT EXISTS public.saved_posts (
 CREATE INDEX IF NOT EXISTS idx_saved_posts_user ON public.saved_posts(user_id);
 
 -- ------------------------------------------------------------------------------
+-- 13. Notifications Table
 -- 14. Notifications Table
 -- Event-driven alerts (replies, upvotes, helpful marks, followers)
 -- ------------------------------------------------------------------------------
@@ -458,6 +464,8 @@ CREATE TRIGGER trg_sync_invitation_on_circle_join
 -- Contribution Score Protection & Auto-Recalculation
 -- Formula: (questions * 5) + (answers * 2) + helpful_votes_received + question_votes_received
 -- Architecture:
+-- 1. Database-level recalculation is trusted via transaction session flag 'blu.internal_recalc'.
+-- 2. Direct client updates to 'contribution_score' are discarded by trigger AND revoked by column privilege.
 -- 1. Database-level recalculation is atomic, querying normalized rows directly (independent of trigger order).
 -- 2. Direct client updates to 'contribution_score' are discarded by trigger AND revoked by table/column privilege.
 -- ==============================================================================
@@ -485,6 +493,7 @@ CREATE TRIGGER trg_guard_profile_contribution_score
   FOR EACH ROW
   EXECUTE FUNCTION public.guard_profile_contribution_score();
 
+-- Trusted recalculation procedure
 -- Trusted recalculation procedure: Queries normalized source-of-truth rows directly
 CREATE OR REPLACE FUNCTION public.recalculate_user_contribution_score(target_user_id UUID)
 RETURNS VOID AS $$
@@ -509,12 +518,18 @@ BEGIN
   FROM public.answers
   WHERE author_id = target_user_id;
 
+  -- 3. Total helpful votes received on author's answers
+  SELECT COALESCE(SUM(a.helpful_count), 0) INTO v_helpful_received
+  FROM public.answers a
   -- 3. Total helpful votes received on author's answers (direct from normalized rows)
   SELECT COUNT(*) INTO v_helpful_received
   FROM public.answer_helpful_votes hv
   JOIN public.answers a ON a.id = hv.answer_id
   WHERE a.author_id = target_user_id;
 
+  -- 4. Total votes received on author's questions
+  SELECT COALESCE(SUM(q.votes_count), 0) INTO v_question_votes_received
+  FROM public.questions q
   -- 4. Total votes received on author's questions (direct from normalized rows)
   SELECT COUNT(*) INTO v_question_votes_received
   FROM public.question_votes qv
@@ -532,9 +547,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- Revoke direct column updates from unprivileged client roles
+REVOKE UPDATE (contribution_score) ON public.profiles FROM anon, authenticated;
 -- Revoke table-level UPDATE first to avoid additive column privilege bypass, then grant only editable fields
 REVOKE UPDATE ON public.profiles FROM anon, authenticated;
 GRANT UPDATE (username, full_name, bio, interests, avatar_id, photo_url, cover_hue) ON public.profiles TO authenticated;
+GRANT SELECT ON public.profiles TO anon, authenticated;
 
 -- Score trigger: On question creation / deletion
 CREATE OR REPLACE FUNCTION public.trg_recalc_score_on_question()
@@ -594,6 +612,7 @@ CREATE TRIGGER trg_score_on_question_vote
   AFTER INSERT OR DELETE ON public.question_votes
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_recalc_score_on_question_vote();
+  EXECUTE FUNCTION public.trg_score_on_question_vote();
 
 -- Score trigger: On answer helpful vote / unmark
 CREATE OR REPLACE FUNCTION public.trg_recalc_score_on_helpful_vote()
@@ -617,8 +636,10 @@ CREATE TRIGGER trg_score_on_helpful_vote
   AFTER INSERT OR DELETE ON public.answer_helpful_votes
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_recalc_score_on_helpful_vote();
+  EXECUTE FUNCTION public.trg_score_on_helpful_vote();
 
 -- ==============================================================================
+-- Safe New User Profile Trigger (Concurrency-Resilient)
 -- Safe New User Profile Trigger (Concurrency-Resilient & Bounded)
 -- Automatically creates a public.profiles record when auth.users receives a new signup
 -- ==============================================================================
@@ -649,6 +670,7 @@ BEGIN
 
   candidate_uname := base_uname;
 
+  -- Concurrency-resilient insertion loop with exception recovery
   -- Concurrency-resilient insertion loop with bounded exception recovery
   LOOP
     BEGIN
@@ -680,15 +702,14 @@ BEGIN
     EXCEPTION WHEN unique_violation THEN
       counter := counter + 1;
       -- Append random hex entropy to resolve race conditions reliably
-      candidate_uname := base_uname || '_' || SUBSTRING(MD5(NEW.id::TEXT || counter::TEXT || clock_timestamp()::TEXT) FROM 1 FOR 4);
-      
-      -- Bounded ceiling: If 10 random attempts collide, use deterministic user_<uuid_slice>
-      IF counter = 11 THEN
+      IF counter <= 10 THEN
+        candidate_uname := base_uname || '_' || SUBSTRING(MD5(NEW.id::TEXT || counter::TEXT || clock_timestamp()::TEXT) FROM 1 FOR 4);
+      ELSIF counter <= 15 THEN
+        -- Bounded ceiling: deterministic user_<uuid_slice>
         candidate_uname := 'user_' || SUBSTRING(REPLACE(NEW.id::TEXT, '-', '') FROM 1 FOR 12);
-      ELSIF counter > 15 THEN
-        -- Prevent unbounded loops under any catastrophic condition
-        RAISE WARNING 'handle_new_user: Retries exceeded for user %', NEW.id;
-        EXIT;
+      ELSE
+        -- Abort transaction if all retries fail so an auth user is never created without a profile
+        RAISE EXCEPTION 'handle_new_user failed: unable to allocate unique username for user % after % attempts', NEW.id, counter;
       END IF;
     END;
   END LOOP;
@@ -705,6 +726,71 @@ CREATE TRIGGER on_auth_user_created
   EXECUTE FUNCTION public.handle_new_user();
 
 -- ==============================================================================
+-- Idempotent & Collision-Safe Backfill for existing auth.users missing a profile
+-- ==============================================================================
+DO $$
+DECLARE
+  r RECORD;
+  base_uname TEXT;
+  candidate_uname TEXT;
+  counter INTEGER;
+BEGIN
+  FOR r IN
+    SELECT
+      u.id,
+      u.email,
+      u.raw_user_meta_data
+    FROM auth.users u
+    LEFT JOIN public.profiles p ON p.id = u.id
+    WHERE p.id IS NULL
+  LOOP
+    base_uname := LOWER(REGEXP_REPLACE(
+      COALESCE(r.raw_user_meta_data->>'full_name', r.raw_user_meta_data->>'name', SPLIT_PART(r.email, '@', 1), 'user'),
+      '[^a-zA-Z0-9_]', '_', 'g'
+    ));
+    IF LENGTH(base_uname) < 3 THEN
+      base_uname := 'user_' || SUBSTRING(REPLACE(r.id::TEXT, '-', '') FROM 1 FOR 6);
+    ELSIF LENGTH(base_uname) > 16 THEN
+      base_uname := SUBSTRING(base_uname FROM 1 FOR 16);
+    END IF;
+
+    candidate_uname := base_uname;
+    counter := 0;
+
+    -- Actively probe public.profiles to guarantee collision safety against both existing and newly backfilled rows
+    WHILE EXISTS (SELECT 1 FROM public.profiles WHERE username = candidate_uname) LOOP
+      counter := counter + 1;
+      IF counter <= 10 THEN
+        candidate_uname := base_uname || '_' || SUBSTRING(MD5(r.id::TEXT || counter::TEXT || clock_timestamp()::TEXT) FROM 1 FOR 4);
+      ELSE
+        candidate_uname := 'user_' || SUBSTRING(REPLACE(r.id::TEXT, '-', '') FROM 1 FOR (12 + LEAST(counter - 10, 8)));
+      END IF;
+    END LOOP;
+
+    INSERT INTO public.profiles (
+      id,
+      username,
+      full_name,
+      avatar_id,
+      photo_url,
+      bio,
+      interests
+    )
+    VALUES (
+      r.id,
+      candidate_uname,
+      COALESCE(r.raw_user_meta_data->>'full_name', r.raw_user_meta_data->>'name', SPLIT_PART(r.email, '@', 1), 'Explorer'),
+      COALESCE(r.raw_user_meta_data->>'avatar_id', 'pip'),
+      COALESCE(r.raw_user_meta_data->>'avatar_url', r.raw_user_meta_data->>'picture', NULL),
+      COALESCE(r.raw_user_meta_data->>'bio', 'A curious explorer learning and sharing on blu.'),
+      ARRAY['Technology', 'Life', 'Ideas']
+    )
+    ON CONFLICT (id) DO NOTHING;
+  END LOOP;
+END $$;
+
+-- ==============================================================================
+-- Automated Notification Workflow Triggers
 -- Automated Notification Workflow Triggers (With Anti-Spam Deduplication)
 -- Generated strictly by trusted server triggers. Clients CANNOT forge notifications.
 -- ==============================================================================
@@ -775,6 +861,7 @@ CREATE TRIGGER trg_notify_on_answer
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_notify_on_new_answer();
 
+-- 2. Notify Question Author on Upvote
 -- 2. Notify Question Author on Upvote (Deduplicated within 24 Hours)
 CREATE OR REPLACE FUNCTION public.trg_notify_on_question_vote()
 RETURNS TRIGGER AS $$
@@ -786,6 +873,22 @@ BEGIN
   FROM public.questions WHERE id = NEW.question_id;
 
   IF v_author IS NOT NULL AND v_author <> NEW.user_id THEN
+    INSERT INTO public.notifications (
+      recipient_id,
+      actor_id,
+      type,
+      title,
+      body,
+      link
+    )
+    VALUES (
+      v_author,
+      NEW.user_id,
+      'question_upvoted',
+      'Discussion upvoted',
+      'Your discussion "' || SUBSTRING(v_title FROM 1 FOR 60) || '" received an upvote.',
+      '/explore?q=' || NEW.question_id::TEXT
+    );
     -- Prevent notification flooding if toggling upvote repeatedly
     IF NOT EXISTS (
       SELECT 1 FROM public.notifications n
@@ -823,6 +926,7 @@ CREATE TRIGGER trg_notify_on_question_vote
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_notify_on_question_vote();
 
+-- 3. Notify Answer Author on Helpful Vote
 -- 3. Notify Answer Author on Helpful Vote (Deduplicated within 24 Hours)
 CREATE OR REPLACE FUNCTION public.trg_notify_on_helpful_vote()
 RETURNS TRIGGER AS $$
@@ -834,6 +938,22 @@ BEGIN
   FROM public.answers WHERE id = NEW.answer_id;
 
   IF v_author IS NOT NULL AND v_author <> NEW.user_id THEN
+    INSERT INTO public.notifications (
+      recipient_id,
+      actor_id,
+      type,
+      title,
+      body,
+      link
+    )
+    VALUES (
+      v_author,
+      NEW.user_id,
+      'answer_helpful',
+      'Answer marked helpful',
+      'Someone marked your answer as helpful.',
+      '/explore?q=' || v_q_id::TEXT
+    );
     -- Prevent notification flooding if toggling helpful repeatedly
     IF NOT EXISTS (
       SELECT 1 FROM public.notifications n
@@ -871,6 +991,7 @@ CREATE TRIGGER trg_notify_on_helpful_vote
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_notify_on_helpful_vote();
 
+-- 4. Notify User on New Follower
 -- 4. Notify User on New Follower (Deduplicated within 24 Hours)
 CREATE OR REPLACE FUNCTION public.trg_notify_on_follow()
 RETURNS TRIGGER AS $$
@@ -878,9 +999,26 @@ DECLARE
   v_follower_name TEXT;
   v_follower_uname TEXT;
 BEGIN
+  SELECT COALESCE(full_name, username) INTO v_follower_name
   SELECT username, COALESCE(full_name, username) INTO v_follower_uname, v_follower_name
   FROM public.profiles WHERE id = NEW.follower_id;
 
+  INSERT INTO public.notifications (
+    recipient_id,
+    actor_id,
+    type,
+    title,
+    body,
+    link
+  )
+  VALUES (
+    NEW.following_id,
+    NEW.follower_id,
+    'new_follower',
+    'New follower',
+    COALESCE(v_follower_name, 'A member') || ' started following your journey on blu.',
+    '/profile/' || NEW.follower_id::TEXT
+  );
   -- Prevent notification flooding if toggling follow/unfollow repeatedly
   IF NOT EXISTS (
     SELECT 1 FROM public.notifications n
@@ -927,6 +1065,7 @@ CREATE POLICY "Profiles are viewable by everyone"
   ON public.profiles FOR SELECT
   USING (TRUE);
 
+-- Removed redundant client INSERT: Profiles are provisioned exclusively via auth.users trigger
 -- Redundant client INSERT removed: Profiles are provisioned exclusively via auth.users trigger
 CREATE POLICY "Users can update their own profile"
   ON public.profiles FOR UPDATE
@@ -959,6 +1098,9 @@ CREATE POLICY "Authors can update their own questions"
 CREATE POLICY "Authors can delete their own questions"
   ON public.questions FOR DELETE
   USING (auth.uid() = author_id);
+
+GRANT SELECT ON public.questions TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.questions TO authenticated;
 
 -- 4. Answers
 ALTER TABLE public.answers ENABLE ROW LEVEL SECURITY;
@@ -1025,6 +1167,7 @@ CREATE POLICY "Users can unfollow members"
   ON public.follows FOR DELETE
   USING (auth.uid() = follower_id);
 
+-- 8. Circle Members
 -- 8. Circle Members (Gated: Open Public Circles OR Valid Invitation for Private Circles)
 ALTER TABLE public.circle_members ENABLE ROW LEVEL SECURITY;
 
@@ -1032,8 +1175,10 @@ CREATE POLICY "Circle members are viewable by everyone"
   ON public.circle_members FOR SELECT
   USING (TRUE);
 
+CREATE POLICY "Authenticated users can join circles"
 CREATE POLICY "Users can join public circles or private circles with valid invitation"
   ON public.circle_members FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
   WITH CHECK (
     auth.uid() = user_id
     AND (
@@ -1062,6 +1207,7 @@ CREATE POLICY "Users can leave circles"
   ON public.circle_members FOR DELETE
   USING (auth.uid() = user_id);
 
+-- 9. Circle Messages (Scoped Read + Verified Member Insertion)
 -- 9. Circle Invitations
 ALTER TABLE public.circle_invitations ENABLE ROW LEVEL SECURITY;
 
@@ -1123,6 +1269,7 @@ CREATE POLICY "Authors can delete their own circle messages"
   ON public.circle_messages FOR DELETE
   USING (auth.uid() = author_id);
 
+-- 10. Circle Discussions (Scoped Read + Verified Member Insertion)
 -- 11. Circle Discussions (Scoped Read + Verified Member Insertion)
 ALTER TABLE public.circle_discussions ENABLE ROW LEVEL SECURITY;
 
@@ -1162,6 +1309,7 @@ CREATE POLICY "Authors can delete their own circle discussions"
   ON public.circle_discussions FOR DELETE
   USING (auth.uid() = author_id);
 
+-- 11. Circle Discussion Comments (Scoped Read + Verified Member Insertion)
 -- 12. Circle Discussion Comments (Scoped Read + Verified Member Insertion)
 ALTER TABLE public.circle_discussion_comments ENABLE ROW LEVEL SECURITY;
 
@@ -1203,6 +1351,7 @@ CREATE POLICY "Authors can delete their own discussion comments"
   ON public.circle_discussion_comments FOR DELETE
   USING (auth.uid() = author_id);
 
+-- 12. Saved Posts (Private to User)
 -- 13. Saved Posts (Private to User)
 ALTER TABLE public.saved_posts ENABLE ROW LEVEL SECURITY;
 
@@ -1218,6 +1367,7 @@ CREATE POLICY "Users can remove saved posts"
   ON public.saved_posts FOR DELETE
   USING (auth.uid() = user_id);
 
+-- 13. Notifications (Private to Recipient, Server-Triggered Only)
 -- 14. Notifications (Private to Recipient, Server-Triggered Only)
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
@@ -1267,7 +1417,150 @@ BEGIN
 END $$;
 
 -- ==============================================================================
+-- Storage Configuration & Security Policies
+-- Storage Configuration & Security Policies (Dynamic SQL for Zero-Error Portability)
+-- Buckets: 'avatars' (5MB limit) and 'post-media' (10MB limit)
+-- Safe folder isolation: User can upload only to <user_id>/...
+-- No service-role key required on client.
+-- ==============================================================================
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'storage' AND table_name = 'buckets'
+  ) THEN
+    -- Seed public buckets
+    INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    VALUES
+      ('avatars', 'avatars', TRUE, 5242880, ARRAY['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+      ('post-media', 'post-media', TRUE, 10485760, ARRAY['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4'])
+    ON CONFLICT (id) DO UPDATE
+    SET
+      public = EXCLUDED.public,
+      file_size_limit = EXCLUDED.file_size_limit,
+      allowed_mime_types = EXCLUDED.allowed_mime_types;
+    -- Seed public buckets dynamically to prevent compilation errors if schema is unmounted
+    EXECUTE '
+      INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+      VALUES
+        (''avatars'', ''avatars'', TRUE, 5242880, ARRAY[''image/png'', ''image/jpeg'', ''image/webp'', ''image/gif'']),
+        (''post-media'', ''post-media'', TRUE, 10485760, ARRAY[''image/png'', ''image/jpeg'', ''image/webp'', ''image/gif'', ''video/mp4''])
+      ON CONFLICT (id) DO UPDATE
+      SET
+        public = EXCLUDED.public,
+        file_size_limit = EXCLUDED.file_size_limit,
+        allowed_mime_types = EXCLUDED.allowed_mime_types;
+    ';
+  END IF;
+END $$;
+
+-- Enable RLS and setup storage policies if storage.objects exists
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'storage' AND table_name = 'objects'
+  ) THEN
+    -- Enable RLS dynamically
+    EXECUTE 'ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;';
+
+    -- Public read for avatars and post media
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Public media read access'
+    ) THEN
+      CREATE POLICY "Public media read access"
+        ON storage.objects FOR SELECT
+        USING (bucket_id IN ('avatars', 'post-media'));
+      EXECUTE '
+        CREATE POLICY "Public media read access"
+          ON storage.objects FOR SELECT
+          USING (bucket_id IN (''avatars'', ''post-media''));
+      ';
+    END IF;
+
+    -- Authenticated folder-isolated uploads
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'User isolated uploads'
+    ) THEN
+      CREATE POLICY "User isolated uploads"
+        ON storage.objects FOR INSERT
+        WITH CHECK (
+          bucket_id IN ('avatars', 'post-media')
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::TEXT
+        );
+      EXECUTE '
+        CREATE POLICY "User isolated uploads"
+          ON storage.objects FOR INSERT
+          WITH CHECK (
+            bucket_id IN (''avatars'', ''post-media'')
+            AND auth.role() = ''authenticated''
+            AND (storage.foldername(name))[1] = auth.uid()::TEXT
+          );
+      ';
+    END IF;
+
+    -- User updates own media
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'User updates own media'
+    ) THEN
+      CREATE POLICY "User updates own media"
+        ON storage.objects FOR UPDATE
+        USING (
+          bucket_id IN ('avatars', 'post-media')
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::TEXT
+        )
+        WITH CHECK (
+          bucket_id IN ('avatars', 'post-media')
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::TEXT
+        );
+      EXECUTE '
+        CREATE POLICY "User updates own media"
+          ON storage.objects FOR UPDATE
+          USING (
+            bucket_id IN (''avatars'', ''post-media'')
+            AND auth.role() = ''authenticated''
+            AND (storage.foldername(name))[1] = auth.uid()::TEXT
+          )
+          WITH CHECK (
+            bucket_id IN (''avatars'', ''post-media'')
+            AND auth.role() = ''authenticated''
+            AND (storage.foldername(name))[1] = auth.uid()::TEXT
+          );
+      ';
+    END IF;
+
+    -- User deletes own media
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'User deletes own media'
+    ) THEN
+      CREATE POLICY "User deletes own media"
+        ON storage.objects FOR DELETE
+        USING (
+          bucket_id IN ('avatars', 'post-media')
+          AND auth.role() = 'authenticated'
+          AND (storage.foldername(name))[1] = auth.uid()::TEXT
+        );
+      EXECUTE '
+        CREATE POLICY "User deletes own media"
+          ON storage.objects FOR DELETE
+          USING (
+            bucket_id IN (''avatars'', ''post-media'')
+            AND auth.role() = ''authenticated''
+            AND (storage.foldername(name))[1] = auth.uid()::TEXT
+          );
+      ';
+    END IF;
+  END IF;
+END $$;
+
+-- ==============================================================================
 -- End of Migration 001_initial_schema.sql
--- (Core Public Schema, Constraints, Functions, Triggers, RLS & Realtime)
--- Note: Storage buckets and policies are separated into 002_storage_setup.sql
 -- ==============================================================================
