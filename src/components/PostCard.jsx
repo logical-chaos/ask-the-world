@@ -1,16 +1,6 @@
 import React, { useState, useRef } from "react";
 import BluAvatar from "./BluAvatar";
-
-const POPULAR_REACTIONS = [
-  { id: "butterfly", label: "Blu Butterfly", emoji: "🦋", url: "https://images.unsplash.com/photo-1559827291-72ee739d0d9a?auto=format&fit=crop&w=400&q=80" },
-  { id: "idea", label: "Great Idea", emoji: "💡", url: "https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=400&q=80" },
-  { id: "applause", label: "Applause", emoji: "👏", url: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=400&q=80" },
-  { id: "rocket", label: "To The Moon", emoji: "🚀", url: "https://images.unsplash.com/photo-1517976487507-5b3b4b45a742?auto=format&fit=crop&w=400&q=80" },
-  { id: "celebration", label: "Celebration", emoji: "🎉", url: "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=400&q=80" },
-  { id: "heart", label: "Thank You", emoji: "💜", url: "https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&w=400&q=80" },
-  { id: "brain", label: "Insightful", emoji: "🧠", url: "https://images.unsplash.com/photo-1507413245164-6160d8298b31?auto=format&fit=crop&w=400&q=80" },
-  { id: "sparkle", label: "Brilliant", emoji: "✨", url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=400&q=80" },
-];
+import { POPULAR_REACTIONS } from "./stickers";
 
 function renderVideoPlayer(url, title = "Video attachment", height = "320px", className = "rich-post-video") {
   if (!url) return null;
@@ -48,6 +38,7 @@ export default function PostCard({
   onEditPost,
   onDeletePost,
   onRequireAuth,
+  onOpenProfile = null,
 }) {
   const [copied, setCopied] = useState(false);
   const [showThread, setShowThread] = useState(false);
@@ -381,12 +372,27 @@ export default function PostCard({
               name={question.author}
               user={isAuthor ? user : null}
               profile={isAuthor ? profile : null}
-              photoUrl={isAuthor ? (profile?.photoUrl || user?.user_metadata?.avatar_url || question.authorPhoto) : question.authorPhoto}
+              photoUrl={isAuthor ? (profile ? profile.photoUrl : (user?.user_metadata?.avatar_url || question.authorPhoto)) : question.authorPhoto}
               avatarId={isAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id) : question.authorAvatarId}
               size={24}
-              className="author-avatar-img"
+              className={`author-avatar-img ${onOpenProfile ? "author-avatar-clickable" : ""}`}
+              onClick={onOpenProfile ? (e) => { e.stopPropagation(); onOpenProfile(question.author, question); } : null}
             />
-            <span className="rich-author-name">{question.author}</span>
+            {onOpenProfile ? (
+              <button
+                type="button"
+                className="rich-author-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenProfile(question.author, question);
+                }}
+                title={`View ${question.author}'s profile`}
+              >
+                {question.author}
+              </button>
+            ) : (
+              <span className="rich-author-name">{question.author}</span>
+            )}
             <span className="author-separator">·</span>
             <span className="rich-post-time">
               {question.time || "Just now"}
@@ -869,11 +875,27 @@ export default function PostCard({
                         name={ans.author}
                         user={isAnsAuthor ? user : null}
                         profile={isAnsAuthor ? profile : null}
-                        photoUrl={isAnsAuthor ? (profile?.photoUrl || user?.user_metadata?.avatar_url || ans.authorPhoto) : ans.authorPhoto}
+                        photoUrl={isAnsAuthor ? (profile ? profile.photoUrl : (user?.user_metadata?.avatar_url || ans.authorPhoto)) : ans.authorPhoto}
                         avatarId={isAnsAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id) : ans.authorAvatarId}
                         size={22}
+                        className={onOpenProfile ? "author-avatar-clickable" : ""}
+                        onClick={onOpenProfile ? (e) => { e.stopPropagation(); onOpenProfile(ans.author, ans); } : null}
                       />
-                      <span className="thread-author-name">{ans.author}</span>
+                      {onOpenProfile ? (
+                        <button
+                          type="button"
+                          className="thread-author-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenProfile(ans.author, ans);
+                          }}
+                          title={`View ${ans.author}'s profile`}
+                        >
+                          {ans.author}
+                        </button>
+                      ) : (
+                        <span className="thread-author-name">{ans.author}</span>
+                      )}
                       {isAnsAuthor && (
                         <span className="thread-author-badge">Your answer</span>
                       )}
@@ -1119,13 +1141,29 @@ export default function PostCard({
                                   name={reply.author}
                                   user={isReplyAuthor ? user : null}
                                   profile={isReplyAuthor ? profile : null}
-                                  photoUrl={isReplyAuthor ? (profile?.photoUrl || user?.user_metadata?.avatar_url || reply.authorPhoto) : reply.authorPhoto}
+                                  photoUrl={isReplyAuthor ? (profile ? profile.photoUrl : (user?.user_metadata?.avatar_url || reply.authorPhoto)) : reply.authorPhoto}
                                   avatarId={isReplyAuthor ? (profile?.avatarId || user?.user_metadata?.avatar_id) : reply.authorAvatarId}
                                   size={18}
+                                  className={onOpenProfile ? "author-avatar-clickable" : ""}
+                                  onClick={onOpenProfile ? (e) => { e.stopPropagation(); onOpenProfile(reply.author, reply); } : null}
                                 />
-                                <span className="thread-author-name">
-                                  {reply.author}
-                                </span>
+                                {onOpenProfile ? (
+                                  <button
+                                    type="button"
+                                    className="thread-author-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenProfile(reply.author, reply);
+                                    }}
+                                    title={`View ${reply.author}'s profile`}
+                                  >
+                                    {reply.author}
+                                  </button>
+                                ) : (
+                                  <span className="thread-author-name">
+                                    {reply.author}
+                                  </span>
+                                )}
                                 {isReplyAuthor && (
                                   <span className="thread-author-badge">You</span>
                                 )}

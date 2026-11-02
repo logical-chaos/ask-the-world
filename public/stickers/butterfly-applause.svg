@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <defs>
+    <linearGradient id="hand-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#fef3c7" />
+      <stop offset="100%" stopColor="#fde68a" />
+    </linearGradient>
+    <filter id="applause-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#8b5cf6" flood-opacity="0.25" />
+    </filter>
+  </defs>
+
+  <g filter="url(#applause-glow)">
+    <!-- Motion / sound wave arcs -->
+    <path d="M60 20 Q60 12 60 8" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" />
+    <path d="M42 24 Q36 16 30 14" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" />
+    <path d="M78 24 Q84 16 90 14" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" />
+    <path d="M26 38 Q18 34 12 34" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round" />
+    <path d="M94 38 Q102 34 108 34" stroke="#8b5cf6" stroke-width="2.5" stroke-linecap="round" />
+
+    <!-- Tiny Fluttering Blu Butterfly Above Hands -->
+    <g transform="translate(60, 26) scale(0.65) translate(-60, -30)">
+      <path d="M50 26 C40 10 24 16 30 36 C34 44 46 42 48 34 Z" fill="#8b5cf6" />
+      <path d="M70 26 C80 10 96 16 90 36 C86 44 74 42 72 34 Z" fill="#38bdf8" />
+      <circle cx="60" cy="30" r="3.5" fill="#312e81" />
+      <circle cx="56" cy="22" r="1.5" fill="#fde047" />
+      <circle cx="64" cy="22" r="1.5" fill="#fde047" />
+    </g>
+
+    <!-- Clapping Hands -->
+    <!-- Left Hand -->
+    <path d="M34 88 L34 68 C34 62 40 58 45 58 C50 58 54 62 54 68 L54 78" fill="url(#hand-grad)" stroke="#b45309" stroke-width="2.2" stroke-linecap="round" />
+    <path d="M44 58 L44 50 C44 44 50 40 55 40 C60 40 64 44 64 50 L64 68" fill="url(#hand-grad)" stroke="#b45309" stroke-width="2.2" stroke-linecap="round" />
+    <path d="M54 50 L54 44 C54 38 60 34 65 34 C70 34 74 38 74 44 L74 68" fill="url(#hand-grad)" stroke="#b45309" stroke-width="2.2" stroke-linecap="round" />
+    <path d="M64 46 L64 42 C64 38 68 34 72 34 C76 34 80 38 80 42 L80 66" fill="url(#hand-grad)" stroke="#b45309" stroke-width="2.2" stroke-linecap="round" />
+
+    <!-- Palm & Base -->
+    <path d="M34 82 C34 96 46 106 60 106 C74 106 86 96 86 82 L86 64 C86 58 78 56 74 60 C70 64 66 66 60 66 C54 66 50 64 46 60 C42 56 34 58 34 64 Z" fill="url(#hand-grad)" stroke="#b45309" stroke-width="2.2" stroke-linejoin="round" />
+
+    <!-- Cheerful Purple Cuffs -->
+    <rect x="36" y="98" width="48" height="12" rx="6" fill="#8b5cf6" stroke="#5b21b6" stroke-width="1.8" />
+    <circle cx="60" cy="104" r="2.5" fill="#fde047" />
+
+    <!-- Celebration stars -->
+    <path d="M22 64 L24 68 L28 69 L24 71 L22 75 L20 71 L16 69 L20 68 Z" fill="#ec4899" />
+    <path d="M98 64 L100 68 L104 69 L100 71 L98 75 L96 71 L92 69 L96 68 Z" fill="#ec4899" />
+  </g>
+</svg>
+

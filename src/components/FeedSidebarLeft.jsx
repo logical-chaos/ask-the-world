@@ -48,6 +48,16 @@ export default function FeedSidebarLeft({
           <button
             type="button"
             className="sidebar-nav-item"
+            onClick={() => openPage("topics")}
+          >
+            <span className="sidebar-nav-label">
+              <span>🏷️</span> Topics Directory
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="sidebar-nav-item"
             onClick={onOpenSaved}
           >
             <span className="sidebar-nav-label">

@@ -220,6 +220,7 @@ export default function PostComposer({
             profile={profile}
             name={user?.user_metadata?.full_name || profile?.name || ""}
             size={38}
+            clickable={false}
           />
           <div className="post-composer-input-fake">
             {user

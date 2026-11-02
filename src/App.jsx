@@ -9,13 +9,16 @@ import ThemeToggle from "./components/ThemeToggle";
 import AuthModal from "./components/AuthModal";
 import AuthPromptModal from "./components/AuthPromptModal";
 import BluAvatar from "./components/BluAvatar";
-import { AVATAR_LIST, getDefaultAvatarId } from "./components/avatars";
+import { getDefaultAvatarId } from "./components/avatars";
 import FeedSidebarLeft from "./components/FeedSidebarLeft";
 import FeedSidebarRight from "./components/FeedSidebarRight";
 import PostComposer from "./components/PostComposer";
 import PostCard from "./components/PostCard";
 import SavedPostsModal from "./components/SavedPostsModal";
 import NotificationsModal from "./components/NotificationsModal";
+import AboutPage from "./components/AboutPage";
+import TopicsPage from "./components/TopicsPage";
+import ProfilePage from "./components/ProfilePage";
 import { supabase } from "./lib/supabase";
 
 const initialQuestions = [
@@ -412,7 +415,7 @@ function App() {
   });
 
   const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [_authLoading, setAuthLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(() => initialRecovery.isRecovery);
   const [authModalMode, setAuthModalMode] = useState(() => initialRecovery.mode);
   const [authInitialError, setAuthInitialError] = useState(() => initialRecovery.error);
@@ -442,6 +445,18 @@ function App() {
   const [profileDraft, setProfileDraft] = useState(profile);
   const fileInputRef = useRef(null);
   const [photoError, setPhotoError] = useState("");
+  const [viewedProfileUser, setViewedProfileUser] = useState(null);
+  const [followsByUser, setFollowsByUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem("bluFollows");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const currentUserId = user?.id || "guest";
+  const follows = followsByUser[currentUserId] || {};
 
   const [authContextNotice, setAuthContextNotice] = useState("");
   const [authPrompt, setAuthPrompt] = useState(null);
@@ -606,12 +621,38 @@ function App() {
           setAuthLoading(false);
           if (session?.user?.user_metadata) {
             const meta = session.user.user_metadata;
-            setProfile((prev) => ({
-              ...prev,
-              name: meta.full_name || meta.name || prev.name,
-              photoUrl: prev.photoUrl || meta.avatar_url || meta.picture || null,
-              avatarId: prev.avatarId || meta.avatar_id || getDefaultAvatarId(session.user.email || session.user.id || "blu"),
-            }));
+            const uid = session.user.id;
+            let storedPhoto = null;
+            try {
+              storedPhoto = localStorage.getItem(`bluPhoto_${uid}`) || localStorage.getItem("bluProfile_photo");
+            } catch {
+              // ignore
+            }
+
+            setProfile((prev) => {
+              let resolvedPhoto = prev.photoUrl;
+              if (storedPhoto) {
+                resolvedPhoto = storedPhoto;
+              } else if (meta.avatar_url) {
+                resolvedPhoto = meta.avatar_url;
+              } else if (meta.avatar_id && (meta.avatar_url === null || meta.avatar_url === "")) {
+                resolvedPhoto = null;
+              } else if (!resolvedPhoto && meta.picture && !meta.avatar_id) {
+                resolvedPhoto = meta.picture;
+              }
+
+              const persistentAvatarId =
+                meta.avatar_id ||
+                prev.avatarId ||
+                getDefaultAvatarId(session.user.email || uid || "blu");
+
+              return {
+                ...prev,
+                name: meta.full_name || meta.name || prev.name,
+                photoUrl: resolvedPhoto,
+                avatarId: persistentAvatarId,
+              };
+            });
           }
         }
       } catch (err) {
@@ -631,12 +672,38 @@ function App() {
 
         if (session?.user?.user_metadata) {
           const meta = session.user.user_metadata;
-          setProfile((prev) => ({
-            ...prev,
-            name: meta.full_name || meta.name || prev.name,
-            photoUrl: prev.photoUrl || meta.avatar_url || meta.picture || null,
-            avatarId: prev.avatarId || meta.avatar_id || getDefaultAvatarId(session.user.email || session.user.id || "blu"),
-          }));
+          const uid = session.user.id;
+          let storedPhoto = null;
+          try {
+            storedPhoto = localStorage.getItem(`bluPhoto_${uid}`) || localStorage.getItem("bluProfile_photo");
+          } catch {
+            // ignore
+          }
+
+          setProfile((prev) => {
+            let resolvedPhoto = prev.photoUrl;
+            if (storedPhoto) {
+              resolvedPhoto = storedPhoto;
+            } else if (meta.avatar_url) {
+              resolvedPhoto = meta.avatar_url;
+            } else if (meta.avatar_id && (meta.avatar_url === null || meta.avatar_url === "")) {
+              resolvedPhoto = null;
+            } else if (!resolvedPhoto && meta.picture && !meta.avatar_id) {
+              resolvedPhoto = meta.picture;
+            }
+
+            const persistentAvatarId =
+              meta.avatar_id ||
+              prev.avatarId ||
+              getDefaultAvatarId(session.user.email || uid || "blu");
+
+            return {
+              ...prev,
+              name: meta.full_name || meta.name || prev.name,
+              photoUrl: resolvedPhoto,
+              avatarId: persistentAvatarId,
+            };
+          });
         }
 
         if (event === "PASSWORD_RECOVERY") {
@@ -803,8 +870,8 @@ function App() {
       body: body || "A new discussion from the blu community.",
       tags: postTags,
       author: user.user_metadata?.full_name || user.email?.split("@")[0] || profile?.name || "You",
-      authorPhoto: profile?.photoUrl || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null,
-      authorAvatarId: profile?.avatarId || user?.user_metadata?.avatar_id || null,
+      authorPhoto: profile?.photoUrl ? profile.photoUrl : (profile?.avatarId ? null : (user?.user_metadata?.avatar_url || null)),
+      authorAvatarId: profile?.avatarId || user?.user_metadata?.avatar_id || getDefaultAvatarId(user.email || user.id || "blu"),
       votes: 0,
       answers: 0,
       time: "Just now",
@@ -866,8 +933,8 @@ function App() {
     const newAns = {
       id: createId(),
       author: activeUser.user_metadata?.full_name || activeUser.email?.split("@")[0] || profile?.name || "You",
-      authorPhoto: profile?.photoUrl || activeUser.user_metadata?.avatar_url || activeUser.user_metadata?.picture || null,
-      authorAvatarId: profile?.avatarId || activeUser.user_metadata?.avatar_id || null,
+      authorPhoto: profile?.photoUrl ? profile.photoUrl : (profile?.avatarId ? null : (activeUser.user_metadata?.avatar_url || null)),
+      authorAvatarId: profile?.avatarId || activeUser.user_metadata?.avatar_id || getDefaultAvatarId(activeUser.email || activeUser.id || "blu"),
       body: text?.trim() || "",
       helpful: 0,
       time: "Just now",
@@ -905,8 +972,8 @@ function App() {
     const newReply = {
       id: createId(),
       author: activeUser.user_metadata?.full_name || activeUser.email?.split("@")[0] || profile?.name || "You",
-      authorPhoto: profile?.photoUrl || activeUser.user_metadata?.avatar_url || activeUser.user_metadata?.picture || null,
-      authorAvatarId: profile?.avatarId || activeUser.user_metadata?.avatar_id || null,
+      authorPhoto: profile?.photoUrl ? profile.photoUrl : (profile?.avatarId ? null : (activeUser.user_metadata?.avatar_url || null)),
+      authorAvatarId: profile?.avatarId || activeUser.user_metadata?.avatar_id || getDefaultAvatarId(activeUser.email || activeUser.id || "blu"),
       body: text?.trim() || "",
       helpful: 0,
       time: "Just now",
@@ -1032,10 +1099,37 @@ function App() {
   }
 
   function openPage(page) {
+    if (page === "profile") {
+      setViewedProfileUser(null);
+    }
     setActivePage(page);
     setSelectedCircleId(null);
     setShowAskForm(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openUserProfile(targetUser) {
+    setViewedProfileUser(targetUser || null);
+    setActivePage("profile");
+    setSelectedCircleId(null);
+    setShowAskForm(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function toggleFollow(username) {
+    if (!username) return;
+    const cleanKey = username.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    setFollowsByUser((prev) => {
+      const userFollows = prev[currentUserId] || {};
+      const nextUserFollows = { ...userFollows, [cleanKey]: !userFollows[cleanKey] };
+      const next = { ...prev, [currentUserId]: nextUserFollows };
+      try {
+        localStorage.setItem("bluFollows", JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   }
 
 
@@ -1097,7 +1191,7 @@ function App() {
       img.onload = () => {
         try {
           const canvas = document.createElement("canvas");
-          const MAX_SIZE = 260;
+          const MAX_SIZE = 360;
           let width = img.width;
           let height = img.height;
 
@@ -1118,7 +1212,7 @@ function App() {
           const ctx = canvas.getContext("2d");
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
             setProfileDraft((prev) => ({
               ...prev,
               photoUrl: dataUrl,
@@ -1182,9 +1276,21 @@ function App() {
     };
 
     setProfile(updatedProfile);
+
+    // Persist reliably to localStorage
     try {
       localStorage.setItem("bluProfile", JSON.stringify(updatedProfile));
       localStorage.setItem("askWorldProfile", JSON.stringify(updatedProfile));
+      if (user?.id) {
+        localStorage.setItem(`bluProfile_${user.id}`, JSON.stringify(updatedProfile));
+        if (updatedProfile.photoUrl) {
+          localStorage.setItem(`bluPhoto_${user.id}`, updatedProfile.photoUrl);
+          localStorage.setItem("bluProfile_photo", updatedProfile.photoUrl);
+        } else {
+          localStorage.removeItem(`bluPhoto_${user.id}`);
+          localStorage.removeItem("bluProfile_photo");
+        }
+      }
     } catch (err) {
       console.warn("Storage save error:", err);
     }
@@ -1407,29 +1513,17 @@ function App() {
             Circles
           </button>
 
-          <a
-            href="#topics"
-            onClick={(e) => {
-              e.preventDefault();
-              openPage("explore");
-            }}
-          >
-            Topics
-          </a>
-
-          <a
-            href="#about"
-            onClick={(e) => {
-              e.preventDefault();
-              openPage("explore");
-            }}
+          <button
+            type="button"
+            className={activePage === "about" ? "nav-active" : ""}
+            onClick={() => openPage("about")}
           >
             About
-          </a>
+          </button>
 
           <button
-            className={activePage === "profile" ? "nav-active" : ""}
-            onClick={() => openPage("profile")}
+            className={activePage === "profile" && !viewedProfileUser ? "nav-active" : (activePage === "profile" ? "nav-active" : "")}
+            onClick={() => openUserProfile(null)}
           >
             Profile
           </button>
@@ -1484,7 +1578,7 @@ function App() {
               <button
                 type="button"
                 className="user-nav-chip"
-                onClick={() => openPage("profile")}
+                onClick={() => openUserProfile(null)}
                 title="View your profile"
               >
                 <BluAvatar
@@ -1492,6 +1586,7 @@ function App() {
                   profile={profile}
                   size={26}
                   className="user-nav-avatar-img"
+                  clickable={false}
                 />
                 <span className="user-nav-name">
                   {user.user_metadata?.full_name
@@ -1766,6 +1861,7 @@ function App() {
                     onEditPost={handleEditPost}
                     onDeletePost={handleDeletePost}
                     onRequireAuth={triggerAuthPrompt}
+                    onOpenProfile={openUserProfile}
                   />
                 ))}
 
@@ -2007,11 +2103,19 @@ function App() {
                             user={message.author === "You" || (user && (message.author === user.user_metadata?.full_name || message.author === user.email?.split("@")[0])) ? user : null}
                             profile={message.author === "You" || (profile && message.author === profile.name) ? profile : null}
                             size={32}
-                            className="chat-avatar-img"
+                            className="chat-avatar-img author-avatar-clickable"
+                            onClick={() => openUserProfile(message.author)}
                           />
                           <div className="chat-message-content">
                             <div className="chat-message-meta">
-                              <strong>{message.author}</strong>
+                              <button
+                                type="button"
+                                className="thread-author-btn"
+                                onClick={() => openUserProfile(message.author)}
+                                title={`View ${message.author}'s profile`}
+                              >
+                                {message.author}
+                              </button>
                               <span>{message.time}</span>
                             </div>
                             <p>{message.text}</p>
@@ -2122,9 +2226,17 @@ function App() {
                               user={post.author === "You" || (user && (post.author === user.user_metadata?.full_name || post.author === user.email?.split("@")[0])) ? user : null}
                               profile={post.author === "You" || (profile && post.author === profile.name) ? profile : null}
                               size={24}
-                              className="author-avatar-img"
+                              className="author-avatar-img author-avatar-clickable"
+                              onClick={() => openUserProfile(post.author)}
                             />
-                            <span>{post.author}</span>
+                            <button
+                              type="button"
+                              className="thread-author-btn"
+                              onClick={() => openUserProfile(post.author)}
+                              title={`View ${post.author}'s profile`}
+                            >
+                              {post.author}
+                            </button>
                             <span className="author-separator">·</span>
                             <span className="muted">Community member</span>
                           </div>
@@ -2154,346 +2266,74 @@ function App() {
             </>
           )}
         </main>
-
-
-      ) : (
-        <main className="profile-page">
-          <section className="profile-hero">
-            <div className="section-label">YOUR SPACE</div>
-            <h1>Your profile<span>.</span></h1>
-            <p>A little introduction to the person behind the questions.</p>
-          </section>
-
-          <section className="profile-card">
-            {!user && !authLoading && (
-              <div className="profile-guest-banner">
-                <div className="profile-guest-info">
-                  <strong>Welcome to your space on blu</strong>
-                  <span>Sign in or create an account to personalize your profile and participate in circles.</span>
-                </div>
-                <div className="profile-guest-actions">
-                  <button
-                    type="button"
-                    className="auth-nav-btn auth-nav-login"
-                    onClick={() => openAuthModal("login")}
-                  >
-                    Log in
-                  </button>
-                  <button
-                    type="button"
-                    className="auth-nav-btn auth-nav-signup"
-                    onClick={() => openAuthModal("signup")}
-                  >
-                    Sign up
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="profile-top">
-              <div className="profile-avatar-wrapper">
-                <BluAvatar
-                  user={user}
-                  profile={profile}
-                  size={88}
-                  className="profile-avatar-large"
-                />
-              </div>
-
-              <div className="profile-heading">
-                <h2>{user ? (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || profile.name) : "Guest Explorer"}</h2>
-                <p>{user ? `${user.email} · blu community member` : "Browsing as guest · blu community"}</p>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
-                  <button
-                    type="button"
-                    className="cancel-button"
-                    style={{ fontSize: "12px", color: "var(--purple)", padding: "4px 10px" }}
-                    onClick={() => setShowOnboarding(true)}
-                  >
-                    Welcome guide ↗
-                  </button>
-                  {user && (
-                    <button
-                      type="button"
-                      className="cancel-button profile-logout-btn"
-                      style={{ fontSize: "12px", padding: "4px 10px" }}
-                      onClick={handleLogout}
-                    >
-                      Log out
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {!isEditingProfile && (
-                <button
-                  type="button"
-                  className={user ? "ask-button" : "ask-button sign-in-profile-btn"}
-                  onClick={startEditingProfile}
-                >
-                  {user ? "Edit profile ✎" : "Sign in to personalize your profile ↗"}
-                </button>
-              )}
-            </div>
-
-            {isEditingProfile ? (
-              <form className="profile-form" onSubmit={saveProfile}>
-                <div className="edit-profile-nav-bar">
-                  <button
-                    type="button"
-                    className="edit-profile-back-btn"
-                    onClick={cancelEditingProfile}
-                    aria-label="Back to Profile"
-                  >
-                    <span className="back-arrow" aria-hidden="true">←</span>
-                    <span>Back to Profile</span>
-                  </button>
-                  <span className="edit-profile-hint">Cancel anytime · Your existing profile is preserved</span>
-                </div>
-
-                <div className="profile-appearance-card">
-                  <div className="appearance-preview-col">
-                    <div className="preview-avatar-wrap">
-                      <BluAvatar
-                        photoUrl={profileDraft.photoUrl}
-                        avatarId={profileDraft.avatarId}
-                        name={profileDraft.name}
-                        size={96}
-                        showBorder={true}
-                        className="edit-avatar-preview"
-                      />
-                      {profileDraft.photoUrl && (
-                        <span className="photo-indicator-badge" title="Custom photo active">
-                          📷 Photo
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="preview-actions">
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        accept="image/*"
-                        style={{ display: "none" }}
-                        onChange={handlePhotoSelect}
-                      />
-                      <div className="preview-actions-btns">
-                        <button
-                          type="button"
-                          className="photo-btn photo-upload-btn"
-                          onClick={() => fileInputRef.current?.click()}
-                        >
-                          {profileDraft.photoUrl ? "Change photo" : "Upload photo"}
-                        </button>
-
-                        {profileDraft.photoUrl && (
-                          <button
-                            type="button"
-                            className="photo-btn photo-remove-btn"
-                            onClick={handleRemovePhoto}
-                          >
-                            Remove photo
-                          </button>
-                        )}
-                      </div>
-                      <span className="photo-help-text">
-                        Upload a photo from your device, or pick an illustrated character below
-                      </span>
-                    </div>
-                  </div>
-
-                  {photoError && (
-                    <div className="photo-error-banner" role="alert">
-                      <span>⚠️</span> {photoError}
-                    </div>
-                  )}
-
-                  <div className="avatar-picker-section">
-                    <div className="avatar-picker-header">
-                      <h4>Choose your blu companion</h4>
-                      <span className="avatar-picker-sub">
-                        Expressive characters hand-crafted with blu's unique community spirit
-                      </span>
-                    </div>
-
-                    <div className="avatar-picker-grid" role="radiogroup" aria-label="Choose your avatar character">
-                      {AVATAR_LIST.map((char) => {
-                        const isSelected = profileDraft.avatarId === char.id && !profileDraft.photoUrl;
-                        const isAssigned = profileDraft.avatarId === char.id;
-
-                        return (
-                          <button
-                            key={char.id}
-                            type="button"
-                            role="radio"
-                            aria-checked={isSelected}
-                            className={`avatar-card-item ${isSelected ? "selected" : ""} ${isAssigned && profileDraft.photoUrl ? "assigned-under-photo" : ""}`}
-                            onClick={() => {
-                              setProfileDraft((prev) => ({
-                                ...prev,
-                                avatarId: char.id,
-                                photoUrl: null,
-                              }));
-                              setPhotoError("");
-                            }}
-                            title={`${char.name} · ${char.tag}\n${char.description}`}
-                          >
-                            <div className="avatar-card-svg-wrap">
-                              <BluAvatar avatarId={char.id} size={48} />
-                            </div>
-                            <div className="avatar-card-info">
-                              <span className="avatar-card-name">{char.name}</span>
-                              <span className="avatar-card-tag">{char.tag}</span>
-                            </div>
-                            {isSelected && (
-                              <span className="avatar-check-badge" aria-label="Selected">
-                                ✓
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                <label htmlFor="profile-name">Your name</label>
-                <input
-                  id="profile-name"
-                  value={profileDraft.name}
-                  onChange={(e) =>
-                    setProfileDraft({
-                      ...profileDraft,
-                      name: e.target.value,
-                    })
-                  }
-                  required
-                />
-
-                <label htmlFor="profile-bio">About you</label>
-                <textarea
-                  id="profile-bio"
-                  value={profileDraft.bio}
-                  onChange={(e) =>
-                    setProfileDraft({
-                      ...profileDraft,
-                      bio: e.target.value,
-                    })
-                  }
-                  rows={3}
-                  maxLength={250}
-                  placeholder="Tell the community a little about yourself..."
-                />
-
-                <label htmlFor="profile-interests">
-                  Interests (separate with commas)
-                </label>
-                <input
-                  id="profile-interests"
-                  value={profileDraft.interests}
-                  onChange={(e) =>
-                    setProfileDraft({
-                      ...profileDraft,
-                      interests: e.target.value,
-                    })
-                  }
-                  placeholder="Technology, Books, Music"
-                />
-
-                <div className="form-actions">
-                  <button
-                    type="button"
-                    className="cancel-button"
-                    onClick={cancelEditingProfile}
-                  >
-                    Cancel
-                  </button>
-
-                  <button className="ask-button" type="submit">
-                    Save profile ↗
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <div className="profile-bio">
-                  <h3>About me</h3>
-                  <p>
-                    {profile.bio || "Add a little introduction about yourself."}
-                  </p>
-                </div>
-
-                <div className="profile-interests">
-                  <h3>Things I love</h3>
-                  <div className="tag-list">
-                    {Array.isArray(profile.interests) && profile.interests.length > 0 && (
-                      profile.interests.map((interest) => (
-                        <span className="tag" key={interest}>
-                          {interest}
-                        </span>
-                      ))
-                    )}
-                    {(!Array.isArray(profile.interests) || profile.interests.length === 0) && (
-                      <span className="muted">No interests added yet.</span>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="profile-stats">
-              <div>
-                <strong>{questions.filter((q) => q.author === "You").length}</strong>
-                <span>Questions</span>
-              </div>
-              <div>
-                <strong>
-                  {Object.values(answersByQuestion)
-                    .flat()
-                    .filter((answer) => answer.author === "You").length}
-                </strong>
-                <span>Answers</span>
-              </div>
-              <div>
-                <strong>{joinedCircles.length}</strong>
-                <span>Circles joined</span>
-              </div>
-            </div>
-
-            <div className="profile-interests">
-              <h3>My Circles</h3>
-              {joinedCircles.length > 0 ? (
-                <div className="joined-circles-list">
-                  {initialCircles
-                    .filter((circle) => joinedCircles.includes(circle.id))
-                    .map((circle) => (
-                      <button
-                        className="profile-circle-link"
-                        key={circle.id}
-                        onClick={() => openCircle(circle.id)}
-                      >
-                        {circle.icon} {circle.name} ↗
-                      </button>
-                    ))}
-                </div>
-              ) : (
-                <p className="muted">
-                  You haven't joined a Circle yet. Explore Circles to find your people!
-                </p>
-              )}
-
-              <button
-                className="cancel-button profile-circles-button"
-                onClick={() => openPage("circles")}
-              >
-                Explore Circles
-              </button>
-            </div>
-          </section>
-        </main>
-      )}
-
-
+      ) : activePage === "about" ? (
+        <AboutPage
+          openPage={openPage}
+          questions={questions}
+          discussions={discussions}
+          circles={initialCircles}
+          user={user}
+        />
+      ) : activePage === "topics" ? (
+        <TopicsPage
+          questions={questions}
+          onSelectTopic={(topicId) => {
+            setActiveTopic(topicId);
+            openPage("explore");
+            setTimeout(() => {
+              const el = document.getElementById("community-feed") || document.getElementById("post-composer");
+              if (el) el.scrollIntoView({ behavior: "smooth" });
+            }, 60);
+          }}
+          onOpenAsk={(topicId) => {
+            setActiveTopic(topicId);
+            openPage("explore");
+            setShowAskForm(true);
+            setTimeout(() => {
+              const el = document.getElementById("post-composer");
+              if (el) el.scrollIntoView({ behavior: "smooth" });
+            }, 60);
+          }}
+        />
+      ) : activePage === "profile" ? (
+        <ProfilePage
+          viewedUser={viewedProfileUser}
+          currentUser={user}
+          currentUserProfile={profile}
+          isEditing={isEditingProfile}
+          onStartEdit={startEditingProfile}
+          onCancelEdit={cancelEditingProfile}
+          onSaveProfile={saveProfile}
+          profileDraft={profileDraft}
+          setProfileDraft={setProfileDraft}
+          fileInputRef={fileInputRef}
+          handlePhotoSelect={handlePhotoSelect}
+          handleRemovePhoto={handleRemovePhoto}
+          photoError={photoError}
+          questions={questions}
+          answersByQuestion={answersByQuestion}
+          discussions={discussions}
+          initialCircles={initialCircles}
+          joinedCircles={joinedCircles}
+          openCircle={openCircle}
+          openPage={openPage}
+          onOpenQuestion={(qId) => {
+            setSelectedQuestionId(qId);
+            openPage("explore");
+            setTimeout(() => {
+              const el = document.getElementById(`question-${qId}`);
+              if (el) el.scrollIntoView({ behavior: "smooth" });
+            }, 60);
+          }}
+          onRequireAuth={triggerAuthPrompt}
+          handleLogout={handleLogout}
+          setShowOnboarding={setShowOnboarding}
+          openAuthModal={openAuthModal}
+          follows={follows}
+          onToggleFollow={toggleFollow}
+          onOpenProfile={openUserProfile}
+        />
+      ) : null}
 
       <footer>
         <button
